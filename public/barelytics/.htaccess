@@ -1,0 +1,9 @@
+Options -Indexes
+
+<FilesMatch "(?i)(\.sqlite(?:3)?(?:-wal|-shm|-journal)?|\.db(?:-wal|-shm|-journal)?|\.sql|\.bak|\.backup|\.zip|\.env|\.ini|\.log|setup\.token|reset\.token)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^(?:config|settings|analytics)(?:\.|$)">
+    Require all denied
+</FilesMatch>

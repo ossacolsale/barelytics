@@ -1,0 +1,26 @@
+:root { color-scheme: light; --ink: #20221f; --muted: #686d65; --line: #e1e4dc; --paper: #f5f6f1; --accent: #345d45; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
+.wrap { width: min(1050px, calc(100% - 32px)); margin: 36px auto 72px; }
+.brand { color: var(--accent); font-size: .75rem; font-weight: 800; letter-spacing: .16em; margin-bottom: 4px; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.04em; margin: 0 0 24px; }
+h2 { font-size: 1.2rem; margin-top: 0; }
+.card { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 22px; margin: 18px 0; box-shadow: 0 3px 12px #18221608; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2px 16px; }
+.toolbar { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; justify-content: space-between; }
+.toolbar p { font-size: 1.2rem; margin: 0; }
+form { display: grid; gap: 14px; margin: 12px 0 0; }
+.toolbar form { display: flex; align-items: end; }
+label { display: grid; gap: 6px; font-weight: 600; }
+.check { display: flex; align-items: center; gap: 9px; }
+input, select, textarea { width: 100%; border: 1px solid #cbd0c6; border-radius: 7px; padding: 10px 11px; color: inherit; font: inherit; background: white; }
+input[type=checkbox] { width: auto; }
+button { border: 0; border-radius: 7px; background: var(--accent); color: white; padding: 10px 16px; font: inherit; font-weight: 700; cursor: pointer; }
+button.secondary { background: #e9eee8; color: var(--ink); }
+button.danger { background: #9c3025; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; overflow-wrap: anywhere; }
+th:last-child, td:last-child { text-align: right; }
+.notice { background: #eaf3e8; border: 1px solid #c9dec4; padding: 12px 16px; border-radius: 8px; }
+.notice.error { color: #84291f; background: #fff0ed; border-color: #f1c4bc; }
+.note { color: var(--muted); font-size: .9rem; }

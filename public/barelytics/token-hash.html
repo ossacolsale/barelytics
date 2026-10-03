@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Barelytics setup-token file helper</title>
+  <link rel="stylesheet" href="admin.css">
+  <script defer src="token-hash.js"></script>
+</head>
+<body>
+  <main class="wrap">
+    <p class="brand">BARELYTICS</p>
+    <h1>One-time setup token file</h1>
+    <section class="card">
+      <p>This page hashes your token in this browser. It does not submit the token or make a network request. Keep the original token in your password manager until setup is complete.</p>
+      <label>Random token (at least 32 characters)<input id="token" type="password" autocomplete="off" minlength="32"></label>
+      <button id="download" type="button">Create setup-token.php</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+</body>
+</html>
