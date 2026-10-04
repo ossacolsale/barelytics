@@ -1,0 +1,8 @@
+[
+  {"method":"POST","body":{"path":"/example.html"},"status":204},
+  {"method":"POST","body":{"path":"/article?email=private@example.test"},"status":400},
+  {"method":"POST","body":{"path":"/article","visitor_id":"must-reject"},"status":400},
+  {"method":"POST","body":"{","status":400},
+  {"method":"GET","status":405},
+  {"method":"POST","body_bytes":8193,"status":413}
+]

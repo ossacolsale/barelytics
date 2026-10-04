@@ -1,0 +1,7 @@
+[
+  {"user_agent":"Mozilla compatible GOOGLEBOT/2.1","bot":true},
+  {"user_agent":"MyTestRobot","additional_patterns":["robot"],"bot":true},
+  {"user_agent":"Mozilla/5.0 (X11; Linux x86_64)","bot":false},
+  {"user_agent":"","bot":false},
+  {"user_agent":"Mozilla/5.0 Lighthouse","bot":true}
+]

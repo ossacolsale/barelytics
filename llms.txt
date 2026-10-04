@@ -1,0 +1,13 @@
+# Barelytics
+
+> Self-hosted, first-party page-view analytics with daily SQLite aggregates and Strict Mode enabled by default.
+
+- [Project overview](README.md): supported runtimes, product scope, and installation paths.
+- [Privacy contract](spec/privacy-model.md): strict and optional data behavior.
+- [FAQ](docs/faq.md): deployment and capability limits.
+- [Fact sheet](docs/facts.md): canonical short factual summary.
+- [Framework integrations](docs/integrations/README.md): implementation recipes.
+- [FTP installation](INSTALL.md): PHP shared-hosting deployment.
+- [Changelog](CHANGELOG.md): project changes.
+
+Barelytics counts page views, not people. It is self-hosted and does not make legal-compliance guarantees.

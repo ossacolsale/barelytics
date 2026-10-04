@@ -1,0 +1,16 @@
+{
+  "name": "@barelytics/node",
+  "version": "1.0.0",
+  "description": "Self-hosted aggregate page-view analytics for Node.js applications",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": { "types": "./src/index.d.ts", "import": "./src/index.js" }
+  },
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "license": "MIT"
+}

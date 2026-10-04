@@ -1,0 +1,18 @@
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Barelytics",
+  "applicationCategory": "WebApplication",
+  "operatingSystem": "PHP, Node.js, Python, .NET, Java, or Ruby host with persistent SQLite storage",
+  "license": "https://opensource.org/license/mit",
+  "codeRepository": "https://github.com/ossacolsale/barelytics",
+  "description": "Self-hosted, first-party web analytics that stores daily aggregate page views in local SQLite. Strict Mode is enabled by default and does not create visitor identifiers.",
+  "softwareRequirements": "A supported Barelytics runtime and persistent local SQLite storage; PHP requires PDO SQLite.",
+  "featureList": [
+    "Daily aggregate page views by normalized path",
+    "Strict Mode by default",
+    "Optional aggregate dimensions require administrator opt-in",
+    "Local SQLite storage",
+    "No analytics cookies or persistent visitor identifiers"
+  ]
+}

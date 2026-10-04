@@ -1,0 +1,3 @@
+# Configuration contract
+
+All runtimes have the same effective values: `pageviews=true`; `country_collection=false`; `referrer_collection=false`; `browser_collection=false`; `device_collection=false`; `os_collection=false`; `retention_days=180`; default private paths and bot patterns as described by the other contract files. Every missing or invalid optional setting evaluates to false. Invalid retention uses 180 days. An Extended-profile save requires explicit acknowledgement; Strict reset disables all five dimensions. Storage location is configured per application and must be private to the application.

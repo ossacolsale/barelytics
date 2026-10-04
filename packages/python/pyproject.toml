@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "barelytics"
+version = "1.0.0"
+description = "Self-hosted aggregate page-view analytics for Python applications"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Barelytics maintainers" }]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["barelytics*"]

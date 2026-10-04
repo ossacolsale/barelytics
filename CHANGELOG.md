@@ -30,3 +30,13 @@ All notable changes to Barelytics are documented here.
 ### Privacy
 
 - No visitor identifiers, analytics cookies, stored IP addresses, or third-party telemetry.
+
+### Added
+
+- Language-neutral privacy, storage, protocol, path, bot-filtering, retention, audit, and configuration contracts with shared test vectors.
+- Native Node.js, Python, .NET, Java, and Ruby packages with SQLite aggregate stores and runtime contract tests.
+- WordPress plugin source and a reproducible ZIP builder that bundles the PHP reference core.
+- Framework integration recipes, a runtime support matrix, FAQ, comparison, shared-hosting guide, product facts, use cases, and publication-readiness notes.
+- CI matrices for supported Node.js, Python, .NET, Java, and Ruby versions, plus WordPress package assembly.
+- Upgraded GitHub Actions runtime dependencies to current Node.js 24-compatible action releases and limited workflow token permissions to repository contents read access.
+- Added a version-tagged GitHub Release pipeline that validates SemVer tags, runs the runtime test matrix, builds distributable packages, and attaches SHA-256 checksums with generated release notes.

@@ -1,0 +1,5 @@
+# Barelytics on shared hosting and Plesk
+
+The PHP reference package is designed for small PHP sites where FTP/SFTP is the normal deployment tool. Upload `public/barelytics/`, check that PHP 8.1–8.5 and PDO SQLite are available, run the browser installer, create a private database directory, and configure HTTPS before setting a password. The application can do bounded retention cleanup during requests, so no cron job is required.
+
+Check that the SQLite file is outside the public document root where possible. If the host requires a directory under the site tree, use server-level deny rules and confirm direct HTTP requests cannot read database, WAL, or SHM files. Plesk/FastCGI logs may expose PHP errors to administrators; do not enable public error display. Back up the database before upgrades and use the browser migration step in [UPGRADE.md](../UPGRADE.md). The Node, Python, .NET, Java, and Ruby packages require a persistent runtime host and are not substitutes for a PHP-only shared-hosting plan.

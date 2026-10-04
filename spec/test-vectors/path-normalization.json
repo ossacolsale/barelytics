@@ -1,0 +1,21 @@
+[
+  {"input":"/articles/example","expected":"/articles/example"},
+  {"input":"/articles//example","expected":"/articles/example"},
+  {"input":"/users/123456/profile","expected":"/users/:id/profile"},
+  {"input":"/orders/01ARZ3NDEKTSV4RRFFQ69G5FAV","expected":"/orders/:id"},
+  {"input":"/profile/550e8400-e29b-41d4-a716-446655440000","expected":"/profile/:id"},
+  {"input":"/tokens/0123456789abcdef0123456789abcdef","expected":"/tokens/:id"},
+  {"input":"/account/person@example.com","expected":null},
+  {"input":"/account/person%40example.com","expected":null},
+  {"input":"/encoded/%31%32%33%34%35%36","expected":null},
+  {"input":"/article?email=private@example.test","expected":null},
+  {"input":"/article#section","expected":null},
+  {"input":"https://example.test/article","expected":null},
+  {"input":"//example.test/article","expected":null},
+  {"input":"/bad\u0000path","expected":null},
+  {"input":"/bad%ZZpath","expected":null},
+  {"input":{"prefix":"/","repeat":"a","count":512},"expected":null},
+  {"input":"/admin.php","expected":"/admin.php","excluded":true},
+  {"input":"/admin/users","expected":"/admin/users","excluded":true},
+  {"input":"/public/admin-guide","expected":"/public/admin-guide","excluded":false}
+]

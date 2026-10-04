@@ -1,53 +1,49 @@
 # Barelytics
 
-> Analytics, stripped to the essentials.
+> First-party analytics that counts pages without following people.
 
-Barelytics is a tiny, first-party analytics package for PHP websites. It uses SQLite to keep daily page-view aggregates and answers basic questions about pages, countries, and traffic over time. It is intended for personal and small websites, not as a replacement for a large analytics platform.
+Barelytics is a self-hosted analytics library for small websites and applications. It writes daily page-view aggregates to a local SQLite database. Strict Mode is on by default: Barelytics stores a normalized page path, UTC day, and count; it does not create a visitor identifier.
 
-## Features
+## What it collects
 
-- Upload-and-run package: no SSH, Composer, npm, build step, or required cron
-- Browser installer with environment diagnostics and one-time token setup
-- Plain PHP and PDO SQLite, with browser-driven schema migrations
-- No analytics cookies, persistent visitor IDs, browser storage IDs, or fingerprinting
-- No stored IP addresses, full User-Agent strings, query strings, or full referrer URLs
-- Daily aggregate page views, optional country codes, optional referrer hostnames
-- Configurable 30–365 day retention with bounded no-cron cleanup
-- Admin dashboard with period and page-level aggregate views, CSRF protection, PHP password hashing, and secure sessions
-- Authenticated read-only diagnostics, an explicit database probe, and in-session administrator password changes
-- Framework-independent JavaScript and PHP integration
-- No third-party analytics requests or hidden telemetry
-- Strict Mode by default, with optional aggregate dimensions controlled by the administrator
-- Privacy audit page with runtime self-tests, schema review, configuration fingerprint/history, and JSON export
+By default, Barelytics stores aggregate page views and normalized paths. It does **not** store IP addresses, full User-Agent strings, query strings, full referrer URLs, cookies, browser storage IDs, account IDs, or cross-site identifiers. Optional country, referrer-host, browser, device, and operating-system aggregates are off until an administrator explicitly enables them. Bot filtering is heuristic. Barelytics makes no legal-compliance guarantee; site owners assess their own obligations.
 
-Strict Mode records aggregate page views only. Country, referrer hostname, browser, device, and operating-system dimensions are individually opt-in. Bot/crawler filtering is heuristic and may not identify every automated request. Barelytics is a technical privacy-minimization tool, not a legal compliance guarantee. Site owners must assess requirements for their audience and jurisdictions.
+## Runtime support
 
-## Install with FTP/SFTP
+| Runtime or integration | Supported baseline | Package |
+| --- | --- | --- |
+| PHP | 8.1–8.5, PDO SQLite; FTP/SFTP deployment | [`public/barelytics/`](public/barelytics/) |
+| Node.js / TypeScript | Node 22 and 24 LTS | [`packages/node/`](packages/node/) |
+| Python | 3.11–3.14 | [`packages/python/`](packages/python/) |
+| .NET / ASP.NET Core | .NET 10 LTS; .NET 8 compatibility target | [`packages/dotnet/`](packages/dotnet/) |
+| Java | Java 21 and 25 | [`packages/java/`](packages/java/) |
+| Ruby | Ruby 3.3, 3.4, and 4.0 | [`packages/ruby/`](packages/ruby/) |
+| WordPress | Plugin ZIP assembled from the PHP reference core | [`integrations/wordpress/`](integrations/wordpress/) |
 
-The runtime package is [`public/barelytics/`](public/barelytics/). Upload that directory to your website, for example as `/barelytics/`, using FTP/SFTP or your hosting file manager. Open `/barelytics/install.php`, follow its environment checks, create the one-time setup token with the local browser helper, upload its PHP-wrapped hash file to the package `data/` folder, and set the admin password in the browser. Then copy the generated tracking snippet into your site.
+All runtimes use a local SQLite database; non-PHP integrations do not call a remote Barelytics service. Persistent storage is required. SQLite on ephemeral serverless or edge filesystems is not supported.
 
-No SSH, shell commands, Composer, npm, or cron is required. Barelytics needs PHP 8.1–8.5, PDO SQLite, JSON, and PHP sessions. The installer checks these requirements and explains failures. HTTPS is required before submitting credentials in production.
+## Choose an integration
 
-See [INSTALL.md](INSTALL.md) for the FTP-only setup, token helper, storage security, and verification steps. See [UPGRADE.md](UPGRADE.md) for FTP upload and browser migrations.
+- **PHP on shared hosting:** upload [`public/barelytics/`](public/barelytics/) by FTP/SFTP. No Composer, npm, SSH, or mandatory cron is required. Start with [FTP installation](INSTALL.md).
+- **WordPress:** build the installable ZIP with `php scripts/build-wordpress-plugin.php`, then upload it in the WordPress Plugins screen. See [the plugin guide](integrations/wordpress/README.md).
+- **Node, Python, .NET, Java, or Ruby:** install the package for your application and point it at a persistent private directory. See each package README and [framework recipes](docs/integrations/README.md).
 
-## Data and privacy
+Use one tracking method per page response to prevent double-counting. For server-side integrations, count successful document responses only; exclude APIs, health checks, static files, feeds, and background jobs.
 
-Barelytics counts page views, not unique people. Strict Mode stores normalized same-site paths, UTC dates, and aggregate counts. Optional dimensions can be enabled individually in the admin dashboard. It does not create a persistent visitor identifier and does not store IP addresses. Country codes come only from a trusted hosting header; absent or invalid values become `XX`.
+## Privacy and operations
 
-Administrators can open **Privacy audit** from the dashboard to inspect the effective profile, run self-tests, review the database schema and configuration history, and export a JSON report. See [the independent verification guide](docs/privacy-audit.md).
+Administrators can review the effective settings, schema checks, and configuration fingerprint through the privacy audit. See the [privacy contract](spec/privacy-model.md), [audit model](spec/audit-model.md), [security notes](docs/security.md), and [FAQ](docs/faq.md).
 
-## Repository development
+Browse the [documentation index](docs/README.md) for integration, deployment, privacy, and product guides.
 
-The runtime package is complete and requires no build. Maintainers can run the regression checks and syntax checks with PHP tooling; these development commands are not part of installation:
+## Development
 
-```sh
-php tests/run.php
-bash tests/integration.sh
-find public/barelytics -name '*.php' -print0 | xargs -0 -n1 php -l
-```
+Run checks for the package you changed; CI runs the full runtime and version matrix. See [contributing](CONTRIBUTING.md), [contract test vectors](spec/test-vectors/), and the [publication checklist](docs/publication/README.md).
 
-The CI workflow targets PHP 8.1–8.5 and enables PDO SQLite for database and browser-flow checks. See [CONTRIBUTING.md](CONTRIBUTING.md).
+## Releases
+
+Push a version tag such as `v1.2.3` to run the release workflow. After the runtime test matrix passes, it builds the PHP, WordPress, npm, Python, .NET, Java, and Ruby packages and attaches them with SHA-256 checksums to a GitHub Release. See [release instructions](docs/publication/README.md). Package registries are not published automatically.
 
 ## License
 
-Licensed under the MIT License. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

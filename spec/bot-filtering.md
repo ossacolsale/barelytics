@@ -1,0 +1,3 @@
+# Bot filtering
+
+Bot classification is best-effort and never creates a visitor record. Match the User-Agent case-insensitively against the built-in terms `bot`, `crawler`, `spider`, `slurp`, `bingpreview`, `headless`, `lighthouse`, `pagespeed`, `semrush`, `ahrefsbot`, `mj12bot`, `dotbot`, `facebookexternalhit`, `twitterbot`, `linkedinbot`, `discordbot`, `telegrambot`, `whatsapp`, `petalbot`, `yandex`, `baiduspider`, `bytespider`, `duckduckbot`, `applebot`, `googlebot`, and `bingbot`, plus validated administrator additions. Unknown or missing User-Agent values are not persisted. Bot filtering is heuristic, not an identity or fraud-detection guarantee.
