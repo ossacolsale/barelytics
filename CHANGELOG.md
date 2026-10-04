@@ -22,6 +22,8 @@ All notable changes to Barelytics are documented here.
 - Independent SQLite CRUD and WAL/SHM installer probes with isolated diagnostics and sanitized failure messages.
 - Authenticated read-only database diagnostics with an explicit CRUD/WAL probe, plus administrator password changes from the account page.
 - Statistics-first admin navigation with period filters, day/week/month grouping, page totals, per-day page detail, per-page trends, and optional dimension breakdowns.
+- Shared runtime-native administration UI/API across all supported runtimes, with host authorization and CSRF integration.
+- Release validation that checks runtime package and WordPress plugin versions against the requested release tag.
 
 ### Fixed
 
@@ -40,3 +42,4 @@ All notable changes to Barelytics are documented here.
 - CI matrices for supported Node.js, Python, .NET, Java, and Ruby versions, plus WordPress package assembly.
 - Upgraded GitHub Actions runtime dependencies to current Node.js 24-compatible action releases and limited workflow token permissions to repository contents read access.
 - Added a version-tagged GitHub Release pipeline that validates SemVer tags, runs the runtime test matrix, builds distributable packages, and attaches SHA-256 checksums with generated release notes.
+- Added one shared native admin UI and matching host-authenticated JSON adapters for PHP, Node.js, Python, .NET, Java, Ruby, and WordPress, including per-page and per-day aggregation, privacy controls, maintenance, diagnostics, and audit views.

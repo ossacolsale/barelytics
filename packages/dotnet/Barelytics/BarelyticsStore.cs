@@ -159,6 +159,90 @@ public sealed class BarelyticsStore : IDisposable
         }
     }
 
+    public Dictionary<string, object?> AdminData(string resource, IReadOnlyDictionary<string, string> query)
+    {
+        var config = Configuration();
+        var period = int.TryParse(query.GetValueOrDefault("period", "30"), out var requested) && new[] { 7, 30, 90, 180, 365 }.Contains(requested) ? requested : 30;
+        period = Math.Min(period, config.RetentionDays);
+        var from = DateTime.UtcNow.Date.AddDays(-(period - 1)).ToString("yyyy-MM-dd"); var to = UtcDay();
+        var bucket = query.GetValueOrDefault("bucket", "day"); if (bucket is not ("day" or "week" or "month")) bucket = "day";
+        var group = bucket switch { "week" => "strftime('%Y-W%W',day)", "month" => "substr(day,1,7)", _ => "day" };
+        var page = int.TryParse(query.GetValueOrDefault("page", "1"), out var p) ? Math.Clamp(p, 1, 10000) : 1;
+        var perPage = int.TryParse(query.GetValueOrDefault("per_page", "50"), out var n) ? Math.Clamp(n, 1, 50) : 50;
+        var offset = (page - 1) * perPage;
+        if (resource == "privacy") return PrivacyData(config);
+        if (resource == "dashboard")
+        {
+            var total = Convert.ToInt64(Scalar("SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE day BETWEEN $from AND $to", ("$from", from), ("$to", to)));
+            var active = Convert.ToInt64(Scalar("SELECT COUNT(DISTINCT path) FROM pageviews_daily WHERE day BETWEEN $from AND $to", ("$from", from), ("$to", to)));
+            return new() { ["total"] = total, ["active_pages"] = active, ["daily_average"] = Math.Round((double)total / period, 1), ["timeline"] = ReadAdminRows($"SELECT {group} AS period,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN $from AND $to GROUP BY period ORDER BY period", ("$from", from), ("$to", to)), ["top_pages"] = ReadAdminRows("SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN $from AND $to GROUP BY path ORDER BY views DESC,path LIMIT 10", ("$from", from), ("$to", to)), ["period"] = period, ["bucket"] = bucket };
+        }
+        if (resource is "pages" or "daily")
+        {
+            var select = resource == "pages" ? "path" : "day,path";
+            var totalRows = Convert.ToInt64(Scalar($"SELECT COUNT(*) FROM (SELECT {select} FROM pageviews_daily WHERE day BETWEEN $from AND $to GROUP BY {select})", ("$from", from), ("$to", to)));
+            var order = resource == "pages" ? "ORDER BY views DESC,path" : "ORDER BY day DESC,views DESC,path";
+            var rows = ReadAdminRows($"SELECT {select},SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN $from AND $to GROUP BY {select} {order} LIMIT $limit OFFSET $offset", ("$from", from), ("$to", to), ("$limit", perPage), ("$offset", offset));
+            return new() { ["rows"] = rows, ["total_rows"] = totalRows, ["page"] = page, ["per_page"] = perPage, ["pages"] = (int)Math.Ceiling((double)totalRows / perPage), ["period"] = period };
+        }
+        if (resource == "page")
+        {
+            var path = NormalizePath(query.GetValueOrDefault("path")); if (path is null) throw new ArgumentException("Invalid page path.");
+            var total = Convert.ToInt64(Scalar("SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE path=$path AND day BETWEEN $from AND $to", ("$path", path), ("$from", from), ("$to", to)));
+            return new() { ["path"] = path, ["total"] = total, ["timeline"] = ReadAdminRows($"SELECT {group} AS period,SUM(views) AS views FROM pageviews_daily WHERE path=$path AND day BETWEEN $from AND $to GROUP BY period ORDER BY period", ("$path", path), ("$from", from), ("$to", to)), ["period"] = period, ["bucket"] = bucket };
+        }
+        if (resource == "dimensions")
+        {
+            var dimension = query.GetValueOrDefault("dimension", "country");
+            var map = new Dictionary<string, (string Enabled, string Table, string Column)> { ["country"] = ("country_collection", "pageviews_daily", "country"), ["referrer"] = ("referrer_collection", "referrers_daily", "referrer_host"), ["browser"] = ("browser_collection", "dimensions_daily", "value"), ["device"] = ("device_collection", "dimensions_daily", "value"), ["os"] = ("os_collection", "dimensions_daily", "value") };
+            if (!map.TryGetValue(dimension, out var spec)) throw new ArgumentException("Unsupported dimension.");
+            var enabled = ConfigurationFlag(config, spec.Enabled);
+            if (!enabled) return new() { ["dimension"] = dimension, ["label"] = dimension, ["enabled"] = false, ["rows"] = Array.Empty<object>(), ["total_rows"] = 0, ["page"] = 1, ["pages"] = 1 };
+            var where = spec.Table == "dimensions_daily" ? "dimension=$dimension AND day BETWEEN $from AND $to" : "day BETWEEN $from AND $to";
+            (string Name, object Value)[] args = spec.Table == "dimensions_daily" ? [("$dimension", dimension), ("$from", from), ("$to", to)] : [("$from", from), ("$to", to)];
+            var totalRows = Convert.ToInt64(Scalar($"SELECT COUNT(*) FROM (SELECT {spec.Column} FROM {spec.Table} WHERE {where} GROUP BY {spec.Column})", args));
+            var rows = ReadAdminRows($"SELECT {spec.Column} AS value,SUM(views) AS views FROM {spec.Table} WHERE {where} GROUP BY {spec.Column} ORDER BY views DESC,value LIMIT $limit OFFSET $offset", [..args, ("$limit", perPage), ("$offset", offset)]);
+            return new() { ["dimension"] = dimension, ["label"] = dimension, ["enabled"] = true, ["rows"] = rows, ["total_rows"] = totalRows, ["page"] = page, ["per_page"] = perPage, ["pages"] = (int)Math.Ceiling((double)totalRows / perPage) };
+        }
+        if (resource == "system") return new() { ["application"] = "Barelytics .NET", ["runtime"] = Environment.Version.ToString(), ["schema_version"] = SchemaVersion, ["current_schema_version"] = SchemaVersion, ["migration_required"] = false, ["capabilities"] = new { cleanup = true, delete_all = true, logout = false } };
+        if (resource == "audit") { var report = Audit(); return new() { ["application"] = report.Application, ["contract_version"] = report.ContractVersion, ["schema_version"] = report.SchemaVersion, ["profile"] = report.Profile, ["fingerprint"] = report.Fingerprint, ["configuration"] = PrivacyData(report.Configuration), ["checks"] = report.Checks, ["result"] = report.Result }; }
+        if (resource == "integration") return new() { ["instructions"] = "Mount MapBarelyticsAdmin below the host application's administrator authorization policy and antiforgery middleware.", ["javascript_snippet"] = "app.MapBarelyticsAdmin(store, antiforgery, \"Administrator\");" };
+        throw new ArgumentException("Unknown administration resource.");
+    }
+
+    public Dictionary<string, object?> UpdateAdminSettings(JsonElement input)
+    {
+        if (!input.TryGetProperty("retention_days", out var ret) || !ret.TryGetInt32(out var retention) || !new[] { 30, 90, 180, 365 }.Contains(retention)) throw new ArgumentException("Invalid retention period.");
+        string ReadLines(string name, int maxBytes, bool pathMode)
+        {
+            var raw = input.TryGetProperty(name, out var item) && item.ValueKind == JsonValueKind.String ? item.GetString() ?? "" : "";
+            if (Encoding.UTF8.GetByteCount(raw) > maxBytes) throw new ArgumentException("Invalid settings.");
+            var lines = raw.Split('\n').Select(x => x.Trim()).Where(x => x.Length > 0).Distinct().Order().ToArray();
+            if (lines.Any(x => x.Length > 200 || (pathMode && (!x.StartsWith('/') || x.Contains('?') || x.Contains('#'))))) throw new ArgumentException("Invalid settings.");
+            return string.Join('\n', lines);
+        }
+        var paths = ReadLines("path_exclusions", 4000, true); var bots = ReadLines("bot_patterns", 2000, false);
+        var enabled = Dimensions.Any(key => input.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.True);
+        if (enabled && (!input.TryGetProperty("confirmation", out var confirmation) || confirmation.ValueKind != JsonValueKind.String || confirmation.GetString() != "yes")) throw new ArgumentException("Confirm optional dimension collection.");
+        lock (_gate) { using var tx = _db.BeginTransaction(deferred: false); try { foreach (var key in Dimensions) Set(tx, key, input.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.True ? "1" : "0"); Set(tx, "retention_days", retention.ToString()); Set(tx, "path_exclusions", paths); Set(tx, "bot_patterns", bots); RecordHistory(tx); tx.Commit(); } catch { tx.Rollback(); throw; } }
+        return PrivacyData(Configuration());
+    }
+
+    public void DeleteAll()
+    {
+        lock (_gate) { using var tx = _db.BeginTransaction(deferred: false); try { foreach (var table in new[] { "pageviews_daily", "referrers_daily", "dimensions_daily" }) Execute(tx, $"DELETE FROM {table}"); tx.Commit(); } catch { tx.Rollback(); throw; } }
+    }
+
+    private List<Dictionary<string, object?>> ReadAdminRows(string sql, params (string Name, object Value)[] args)
+    {
+        using var cmd = _db.CreateCommand(); cmd.CommandText = sql; foreach (var (name, value) in args) cmd.Parameters.AddWithValue(name, value);
+        using var reader = cmd.ExecuteReader(); var rows = new List<Dictionary<string, object?>>();
+        while (reader.Read()) { var row = new Dictionary<string, object?>(); for (var i = 0; i < reader.FieldCount; i++) row[reader.GetName(i)] = reader.GetValue(i); rows.Add(row); }
+        return rows;
+    }
+    private static bool ConfigurationFlag(PrivacyConfiguration config, string key) => key switch { "country_collection" => config.CountryCollection, "referrer_collection" => config.ReferrerCollection, "browser_collection" => config.BrowserCollection, "device_collection" => config.DeviceCollection, _ => config.OsCollection };
+    private static Dictionary<string, object?> PrivacyData(PrivacyConfiguration c) => new() { ["country_collection"] = c.CountryCollection, ["referrer_collection"] = c.ReferrerCollection, ["browser_collection"] = c.BrowserCollection, ["device_collection"] = c.DeviceCollection, ["os_collection"] = c.OsCollection, ["retention_days"] = c.RetentionDays, ["profile"] = c.Profile, ["path_exclusions"] = c.PathExclusions, ["bot_patterns"] = c.BotPatterns };
+
     private void Migrate()
     {
         Exec("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS pageviews_daily(day TEXT NOT NULL,path TEXT NOT NULL,country TEXT NOT NULL DEFAULT 'XX',views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,country)); CREATE TABLE IF NOT EXISTS referrers_daily(day TEXT NOT NULL,path TEXT NOT NULL,referrer_host TEXT NOT NULL,views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,referrer_host)); CREATE TABLE IF NOT EXISTS dimensions_daily(day TEXT NOT NULL,path TEXT NOT NULL,dimension TEXT NOT NULL,value TEXT NOT NULL,views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,dimension,value)); CREATE TABLE IF NOT EXISTS privacy_configuration_history(timestamp TEXT NOT NULL,profile TEXT NOT NULL,effective_configuration_json TEXT NOT NULL,configuration_hash TEXT NOT NULL,application_version TEXT NOT NULL,schema_version INTEGER NOT NULL)");

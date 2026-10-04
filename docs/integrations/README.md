@@ -1,5 +1,13 @@
 # Framework integration recipes
 
+## Native administration
+
+Node, WSGI Python, ASP.NET Core, Java Servlet, Ruby Rack, and WordPress adapters serve the same files from `public/barelytics/admin-ui/`. The admin UI is plain HTML/CSS/JavaScript, makes same-origin requests only, and expects the semantic API described in [`../../spec/admin/http-api.md`](../../spec/admin/http-api.md). Mount the admin path below host authorization and provide the framework's CSRF token verifier. Never expose admin routes anonymously.
+
+For .NET, configure ASP.NET Core antiforgery to accept the `RequestVerificationToken` header and use `MapBarelyticsAdmin` with an administrator authorization policy. Java applications register `BarelyticsAdminServlet` with request authorization, CSRF verification, and token callbacks. Rack uses `Barelytics::RackAdmin`; WSGI uses `create_wsgi_app` with authorization, CSRF verification, and a token callback. Node uses `createAdminHandler` with the same callbacks. WordPress uses `manage_options` and a WordPress nonce.
+
+The route is relative to a configurable base path. Keep the trailing slash when opening the UI so its relative static and API URLs stay under the mounted route. PHP FTP installs can open `admin.php?ui=1` after signing into `admin.php`; existing PHP admin, audit, and account URLs remain available.
+
 Every recipe uses the native package shown in the runtime README and a **persistent, non-public SQLite directory**. Initialize one store/application singleton at startup. Count only one successful document response per page load; choose middleware or an explicit call, never both. Keep Strict Mode enabled; page totals and normalized paths are recorded, while dimensions remain opt-in. Each native store exposes an aggregate dashboard and privacy audit. For PHP, the built-in `admin.php` is the dashboard/audit; protect it with a unique administrator password. Skip API, assets, feeds, health checks, previews, and background requests.
 
 ## Django

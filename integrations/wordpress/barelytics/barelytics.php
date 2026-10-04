@@ -21,6 +21,8 @@ $_ENV['BARELYTICS_DATA_DIRECTORY'] = BARELYTICS_WP_DATA_DIRECTORY;
 
 $barelyticsCore = __DIR__ . '/barelytics-core/src/Barelytics.php';
 if (is_file($barelyticsCore)) { require_once $barelyticsCore; }
+$barelyticsAdminApi = __DIR__ . '/barelytics-core/src/AdminApi.php';
+if (is_file($barelyticsAdminApi)) { require_once $barelyticsAdminApi; }
 
 register_activation_hook(__FILE__, static function (): void {
     if (!is_dir(BARELYTICS_WP_DATA_DIRECTORY)) { wp_mkdir_p(BARELYTICS_WP_DATA_DIRECTORY); }
@@ -42,7 +44,68 @@ add_action('template_redirect', static function (): void {
 
 add_action('admin_menu', static function (): void {
     add_options_page('Barelytics', 'Barelytics', 'manage_options', 'barelytics', 'barelytics_wp_settings_page');
+    add_options_page('Barelytics administration', 'Analytics dashboard', 'manage_options', 'barelytics-admin', 'barelytics_wp_shared_admin_page');
 });
+
+add_action('wp_ajax_barelytics_admin_ui_config', static function (): void {
+    if (!current_user_can('manage_options') || !check_ajax_referer('barelytics_admin_ui', '_wpnonce', false)) { status_header(403); exit; }
+    $apiBase = add_query_arg(['action' => 'barelytics_admin_api', '_wpnonce' => wp_create_nonce('barelytics_admin_ui')], admin_url('admin-ajax.php'));
+    header('Content-Type: text/javascript; charset=UTF-8'); header('Cache-Control: no-store');
+    echo 'window.BARELYTICS_ADMIN_CONFIG = ' . wp_json_encode(['apiBase' => $apiBase, 'apiQuery' => true, 'loginUrl' => admin_url('options-general.php?page=barelytics'), 'logout' => false]) . ';';
+    exit;
+});
+
+add_action('wp_ajax_barelytics_admin_api', static function (): void {
+    $nonce = isset($_REQUEST['_wpnonce']) ? sanitize_text_field(wp_unslash((string) $_REQUEST['_wpnonce'])) : '';
+    if (!current_user_can('manage_options') || !wp_verify_nonce($nonce, 'barelytics_admin_ui')) {
+        status_header(403); header('Content-Type: application/json; charset=UTF-8');
+        echo wp_json_encode(['ok' => false, 'data' => null, 'error' => ['code' => 'forbidden', 'message' => 'Administrator access or request verification required.']]); exit;
+    }
+    if (!function_exists('Barelytics\\connectDatabase') || !function_exists('Barelytics\\dispatchAdminApi')) {
+        status_header(503); header('Content-Type: application/json; charset=UTF-8');
+        echo wp_json_encode(['ok' => false, 'data' => null, 'error' => ['code' => 'unavailable', 'message' => 'Barelytics administration is unavailable.']]); exit;
+    }
+    $resource = isset($_REQUEST['api']) && is_string($_REQUEST['api']) ? sanitize_key(wp_unslash($_REQUEST['api'])) : '';
+    if ($resource === 'session') {
+        try { $sessionDb = \Barelytics\connectDatabase(); $retention = \Barelytics\effectivePrivacyConfig($sessionDb)['retention_days']; }
+        catch (Throwable) { \Barelytics\adminApiReply(503, null, 'unavailable', 'Barelytics administration is unavailable.'); }
+        \Barelytics\adminApiReply(200, ['authenticated' => true, 'csrf' => $nonce, 'retention_days' => $retention, 'capabilities' => ['logout' => false, 'delete_all' => true]]);
+    }
+    if ($resource === 'logout') {
+        status_header(400); header('Content-Type: application/json; charset=UTF-8');
+        echo wp_json_encode(['ok' => false, 'data' => null, 'error' => ['code' => 'unsupported', 'message' => 'Sign out through WordPress.']]); exit;
+    }
+    $input = [];
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+        $raw = file_get_contents('php://input');
+        if (!is_string($raw) || strlen($raw) > 8192) \Barelytics\adminApiReply(413, null, 'too_large', 'Request is too large.');
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) \Barelytics\adminApiReply(400, null, 'invalid_json', 'The request body is invalid.');
+        $input = $decoded;
+    }
+    try { $db = \Barelytics\connectDatabase(); }
+    catch (Throwable) { \Barelytics\adminApiReply(503, null, 'unavailable', 'Barelytics administration is unavailable.'); }
+    // WordPress already verified its nonce and capability above; it does not
+    // necessarily have PHP sessions enabled, so do not depend on $_SESSION.
+    \Barelytics\dispatchAdminApi($db, $resource, $_GET, $input, true, $nonce, true);
+});
+
+function barelytics_wp_shared_admin_page(): void
+{
+    if (!current_user_can('manage_options')) { return; }
+    $index = __DIR__ . '/barelytics-core/admin-ui/index.html';
+    if (!is_file($index)) { echo '<div class="wrap"><h1>Barelytics administration unavailable</h1><p>Reinstall the plugin package to restore its admin UI.</p></div>'; return; }
+    $nonce = wp_create_nonce('barelytics_admin_ui');
+    $configUrl = add_query_arg(['action' => 'barelytics_admin_ui_config', '_wpnonce' => $nonce], admin_url('admin-ajax.php'));
+    $cssUrl = plugins_url('barelytics-core/admin-ui/admin.css', __FILE__);
+    $appUrl = plugins_url('barelytics-core/admin-ui/app.js', __FILE__);
+    $html = (string) file_get_contents($index);
+    if (!preg_match('/<body[^>]*>(.*?)<\/body>/is', $html, $body)) { echo '<div class="wrap"><p>Barelytics administration UI is invalid.</p></div>'; return; }
+    echo '<link rel="stylesheet" href="' . esc_url($cssUrl) . '">';
+    echo '<script src="' . esc_url($configUrl) . '"></script>';
+    echo '<script type="module" src="' . esc_url($appUrl) . '"></script>';
+    echo $body[1];
+}
 
 add_action('admin_post_barelytics_save', static function (): void {
     if (!current_user_can('manage_options')) { wp_die(esc_html__('You are not allowed to change Barelytics settings.', 'barelytics'), 403); }

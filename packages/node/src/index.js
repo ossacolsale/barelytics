@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, chmodSync } from 'node:fs';
+import { mkdirSync, chmodSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 export const CONTRACT_VERSION = 1;
@@ -77,6 +78,7 @@ export class Barelytics {
     } catch (error) { try { this.#db.exec('ROLLBACK'); } catch {} throw error; }
   }
   normalizePath(path) { return normalizePath(path); }
+  #rows(sql, ...values) { return this.#db.prepare(sql).all(...values).map(row => ({ ...row })); }
   #config() {
     const config = Object.fromEntries(DIMENSIONS.map(key => [key, setting(this.#db, key, '0') === '1']));
     const retentionRaw = Number(setting(this.#db, 'retention_days', '180'));
@@ -138,10 +140,92 @@ export class Barelytics {
     const from = new Date(Date.now() - (period - 1) * 86400000).toISOString().slice(0, 10);
     const to = daily();
     const total = this.#db.prepare('SELECT COALESCE(SUM(views),0) AS n FROM pageviews_daily WHERE day BETWEEN ? AND ?').get(from, to).n;
-    const byDay = this.#db.prepare('SELECT day,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY day ORDER BY day').all(from, to);
-    const byPage = this.#db.prepare('SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY path ORDER BY views DESC,path LIMIT 500').all(from, to);
+    const byDay = this.#rows('SELECT day,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY day ORDER BY day', from, to);
+    const byPage = this.#rows('SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY path ORDER BY views DESC,path LIMIT 500', from, to);
     const config = this.#config();
     return { total, byDay, byPage, retentionDays: config.retention_days, profile: config.profile };
+  }
+  adminData(resource, query = {}) {
+    const config = this.#config();
+    const acceptedPeriods = [7, 30, 90, 180, 365];
+    const requested = Number(query.period ?? 30);
+    const period = Math.min(acceptedPeriods.includes(requested) ? requested : 30, config.retention_days);
+    const from = new Date(Date.now() - (period - 1) * 86400000).toISOString().slice(0, 10), to = daily();
+    const bucket = ['day', 'week', 'month'].includes(query.bucket) ? query.bucket : 'day';
+    const group = bucket === 'week' ? "strftime('%Y-W%W',day)" : bucket === 'month' ? 'substr(day,1,7)' : 'day';
+    const pagination = () => {
+      const page = Math.max(1, Math.min(10000, Number.isInteger(Number(query.page)) ? Number(query.page) : 1));
+      const perPage = Math.max(1, Math.min(50, Number.isInteger(Number(query.per_page)) ? Number(query.per_page) : 50));
+      return { page, perPage, offset: (page - 1) * perPage };
+    };
+    const pagePath = normalizePath(query.path ?? '');
+    if (resource === 'dashboard') {
+      const d = this.dashboard(period);
+      const totalDays = this.#db.prepare('SELECT COUNT(DISTINCT day) AS n FROM pageviews_daily WHERE day BETWEEN ? AND ?').get(from, to).n;
+      const activePages = this.#db.prepare('SELECT COUNT(DISTINCT path) AS n FROM pageviews_daily WHERE day BETWEEN ? AND ?').get(from, to).n;
+      return { total: d.total, active_pages: activePages, daily_average: Number((d.total / period).toFixed(1)), timeline: this.#rows(`SELECT ${group} AS period,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY period ORDER BY period`, from, to), top_pages: d.byPage.slice(0, 10), period, days_with_views: totalDays, bucket };
+    }
+    if (resource === 'pages' || resource === 'daily') {
+      const { page, perPage, offset } = pagination();
+      const countSql = resource === 'pages'
+        ? 'SELECT COUNT(*) AS n FROM (SELECT path FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY path)'
+        : 'SELECT COUNT(*) AS n FROM (SELECT day,path FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY day,path)';
+      const totalRows = this.#db.prepare(countSql).get(from, to).n;
+      const rows = resource === 'pages'
+        ? this.#rows('SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY path ORDER BY views DESC,path LIMIT ? OFFSET ?', from, to, perPage, offset)
+        : this.#rows('SELECT day,path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY day,path ORDER BY day DESC,views DESC,path LIMIT ? OFFSET ?', from, to, perPage, offset);
+      return { rows, total_rows: totalRows, page, per_page: perPage, pages: Math.ceil(totalRows / perPage), period };
+    }
+    if (resource === 'page') {
+      if (!pagePath) throw new TypeError('Invalid page path.');
+      return { path: pagePath, total: this.#db.prepare('SELECT COALESCE(SUM(views),0) AS n FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ?').get(pagePath, from, to).n,
+        timeline: this.#rows(`SELECT ${group} AS period,SUM(views) AS views FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ? GROUP BY period ORDER BY period`, pagePath, from, to), period, bucket };
+    }
+    if (resource === 'dimensions') {
+      const map = { country: ['country_collection', 'pageviews_daily', 'country'], referrer: ['referrer_collection', 'referrers_daily', 'referrer_host'], browser: ['browser_collection', 'dimensions_daily', 'value'], device: ['device_collection', 'dimensions_daily', 'value'], os: ['os_collection', 'dimensions_daily', 'value'] };
+      const dimension = query.dimension ?? 'country';
+      if (!map[dimension]) throw new TypeError('Unsupported dimension.');
+      const [enabledKey, table, column] = map[dimension], enabled = config[enabledKey];
+      if (!enabled) return { dimension, enabled: false, label: dimension, rows: [], total_rows: 0, page: 1, pages: 1 };
+      const { page, perPage, offset } = pagination();
+      const params = table === 'dimensions_daily' ? [dimension, from, to] : [from, to];
+      const where = table === 'dimensions_daily' ? 'dimension=? AND day BETWEEN ? AND ?' : 'day BETWEEN ? AND ?';
+      const totalRows = this.#db.prepare(`SELECT COUNT(*) AS n FROM (SELECT ${column} FROM ${table} WHERE ${where} GROUP BY ${column})`).get(...params).n;
+      const rows = this.#rows(`SELECT ${column} AS value,SUM(views) AS views FROM ${table} WHERE ${where} GROUP BY ${column} ORDER BY views DESC,value LIMIT ? OFFSET ?`, ...params, perPage, offset);
+      return { dimension, enabled: true, label: dimension, rows, total_rows: totalRows, page, per_page: perPage, pages: Math.ceil(totalRows / perPage) };
+    }
+    if (resource === 'privacy') return config;
+    if (resource === 'system') return { application: 'Barelytics Node.js', runtime: process.version, schema_version: SCHEMA_VERSION, current_schema_version: SCHEMA_VERSION, migration_required: false, capabilities: { cleanup: true, delete_all: true, logout: false } };
+    if (resource === 'integration') return { instructions: 'Install @barelytics/node and mount the admin handler behind your host application’s administrator authorization and CSRF middleware.', javascript_snippet: "import { Barelytics, createTrackHandler } from '@barelytics/node';" };
+    if (resource === 'audit') return this.audit();
+    throw new TypeError('Unknown administration resource.');
+  }
+  updateAdminSettings(input) {
+    const retention = Number(input.retention_days);
+    if (![30, 90, 180, 365].includes(retention)) throw new TypeError('Invalid retention period.');
+    const lines = (value, maxBytes, pathMode) => {
+      if (typeof value !== 'string' || Buffer.byteLength(value) > maxBytes) throw new TypeError('Invalid settings value.');
+      const items = value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+      if (items.some(x => x.length > 200 || (pathMode && (!x.startsWith('/') || /[?#]/.test(x))))) throw new TypeError('Invalid settings value.');
+      return [...new Set(items)].sort();
+    };
+    const exclusions = lines(input.path_exclusions ?? '', 4000, true), bots = lines(input.bot_patterns ?? '', 2000, false);
+    const values = Object.fromEntries(DIMENSIONS.map(key => [key, input[key] === true]));
+    if (Object.values(values).some(Boolean) && input.confirmation !== 'yes') throw new TypeError('Confirm optional dimension collection.');
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [key, value] of Object.entries(values)) setSetting(this.#db, key, value ? '1' : '0');
+      setSetting(this.#db, 'retention_days', retention);
+      setSetting(this.#db, 'path_exclusions', exclusions.join('\n'));
+      setSetting(this.#db, 'bot_patterns', bots.join('\n'));
+      this.#recordHistory(); this.#db.exec('COMMIT');
+    } catch (error) { try { this.#db.exec('ROLLBACK'); } catch {} throw error; }
+    return this.#config();
+  }
+  deleteAll() {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try { for (const table of ['pageviews_daily', 'referrers_daily', 'dimensions_daily']) this.#db.exec(`DELETE FROM ${table}`); this.#db.exec('COMMIT'); }
+    catch (error) { try { this.#db.exec('ROLLBACK'); } catch {} throw error; }
   }
   audit() {
     const config = this.#config();
@@ -201,23 +285,65 @@ export function createTrackHandler(analytics) {
   };
 }
 
-export function createAdminHandler(analytics, { authorize, verifyCsrf }) {
-  if (typeof authorize !== 'function' || typeof verifyCsrf !== 'function') throw new TypeError('Admin authorization and CSRF verification callbacks are required.');
+export function createAdminHandler(analytics, { authorize, verifyCsrf, csrfToken = () => '' }) {
+  if (typeof authorize !== 'function' || typeof verifyCsrf !== 'function' || typeof csrfToken !== 'function') throw new TypeError('Admin authorization, CSRF verification, and CSRF token callbacks are required.');
+  const adminUi = resolve(dirname(fileURLToPath(import.meta.url)), '../admin-ui');
+  const repositoryUi = resolve(dirname(fileURLToPath(import.meta.url)), '../../../public/barelytics/admin-ui');
+  const reply = (response, status, payload, type = 'application/json; charset=utf-8') => response.writeHead(status, {
+    'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+  }).end(type.startsWith('application/json') ? JSON.stringify(payload) : payload);
+  const asset = name => {
+    for (const base of [adminUi, repositoryUi]) { try { return readFileSync(resolve(base, name)); } catch {} }
+    return null;
+  };
   return async (request, response) => {
-    if (!authorize(request)) { response.writeHead(403).end(); return; }
-    if (request.method === 'GET') { response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }).end(JSON.stringify({ dashboard: analytics.dashboard(), audit: analytics.audit() })); return; }
-    if (request.method !== 'POST') { response.writeHead(405, { Allow: 'GET, POST' }).end(); return; }
-    let body = '';
-    for await (const chunk of request) { body += chunk; if (Buffer.byteLength(body) > 8192) { response.writeHead(413).end(); return; } }
     try {
-      const input = JSON.parse(body);
-      if (typeof input.csrf !== 'string' || !verifyCsrf(request, input.csrf)) { response.writeHead(403).end(); return; }
-      if (input.action === 'strict') analytics.returnToStrictMode();
-      else if (input.action === 'privacy') analytics.updatePrivacy(input.values ?? {}, input.confirmation);
-      else if (input.action === 'cleanup') analytics.cleanup();
-      else { response.writeHead(400).end(); return; }
-      response.writeHead(204, { 'Cache-Control': 'no-store' }).end();
-    } catch { response.writeHead(400).end(); }
+      if (!await authorize(request)) { reply(response, 403, { ok: false, data: null, error: { code: 'forbidden', message: 'Administrator access required.' } }); return; }
+      const url = new URL(request.url, 'http://barelytics.local');
+      const pathname = url.pathname;
+      const originalPath = request.originalUrl ? new URL(request.originalUrl, 'http://barelytics.local').pathname : pathname;
+      if (request.method === 'GET' && pathname === '/' && originalPath.endsWith('/admin')) { response.writeHead(308, { Location: `${originalPath}/` }).end(); return; }
+      if (request.method === 'GET' && (pathname.endsWith('/admin') || pathname.endsWith('/admin/'))) { response.writeHead(308, { Location: `${request.url.replace(/\?.*$/, '')}/` }).end(); return; }
+      const assetName = pathname.endsWith('/admin-ui/app.js') ? 'app.js' : pathname.endsWith('/admin-ui/admin.css') ? 'admin.css' : pathname.endsWith('/admin-ui/config.js') ? 'config.js' : null;
+      if (request.method === 'GET' && (pathname === '/' || pathname.endsWith('/admin/') || pathname.endsWith('/admin/index.html'))) {
+        const bytes = asset('index.html');
+        if (!bytes) { reply(response, 503, { ok: false, data: null, error: { code: 'unavailable', message: 'Administration UI is unavailable.' } }); return; }
+        reply(response, 200, bytes.toString('utf8'), 'text/html; charset=utf-8'); return;
+      }
+      if (request.method === 'GET' && assetName) {
+        const bytes = asset(assetName);
+        if (!bytes) { reply(response, 404, { ok: false, data: null, error: { code: 'not_found', message: 'Resource not found.' } }); return; }
+        const type = assetName.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8';
+        reply(response, 200, assetName === 'config.js' ? 'window.BARELYTICS_ADMIN_CONFIG = { apiBase: "api/" };' : bytes.toString('utf8'), type); return;
+      }
+      const legacyPost = request.method === 'POST' && !pathname.includes('/api/');
+      if (!pathname.includes('/api/') && !legacyPost) { reply(response, 404, { ok: false, data: null, error: { code: 'not_found', message: 'Resource not found.' } }); return; }
+      let resource = legacyPost ? '' : pathname.slice(pathname.lastIndexOf('/api/') + 5).replace(/\/$/, '');
+      if (request.method === 'GET') {
+        const data = resource === 'session'
+          ? { authenticated: true, csrf: String(await csrfToken(request) ?? ''), retention_days: analytics.adminData('privacy').retention_days, capabilities: { logout: false, delete_all: true } }
+          : analytics.adminData(resource, Object.fromEntries(url.searchParams));
+        reply(response, 200, { ok: true, data, error: null }); return;
+      }
+      if (request.method !== 'POST') { response.writeHead(405, { Allow: 'GET, POST' }).end(); return; }
+      let raw = '';
+      for await (const chunk of request) { raw += chunk; if (Buffer.byteLength(raw) > 8192) { reply(response, 413, { ok: false, data: null, error: { code: 'too_large', message: 'Request is too large.' } }); return; } }
+      const input = JSON.parse(raw || '{}');
+      if (typeof input.csrf !== 'string' || !await verifyCsrf(request, input.csrf)) { reply(response, 403, { ok: false, data: null, error: { code: 'csrf', message: 'Request verification failed.' } }); return; }
+      if (legacyPost) resource = input.action === 'privacy' ? 'privacy' : input.action === 'strict' ? 'strict' : input.action === 'cleanup' ? 'cleanup' : '';
+      let data = {};
+      if (resource === 'privacy') data = legacyPost ? analytics.updatePrivacy(input.values ?? {}, input.confirmation) : analytics.updateAdminSettings(input);
+      else if (resource === 'strict') { analytics.returnToStrictMode(); data = analytics.adminData('privacy'); }
+      else if (resource === 'cleanup') data = { complete: analytics.cleanup() };
+      else if (resource === 'delete-all' && input.confirmation === 'DELETE') analytics.deleteAll();
+      else throw new TypeError('Invalid administration action.');
+      if (legacyPost) { response.writeHead(204, { 'Cache-Control': 'no-store' }).end(); return; }
+      reply(response, 200, { ok: true, data, error: null });
+    } catch (error) {
+      const clientError = error instanceof SyntaxError || error instanceof TypeError || error instanceof RangeError;
+      reply(response, clientError ? 400 : 500, { ok: false, data: null, error: { code: clientError ? 'invalid_request' : 'internal_error', message: clientError ? 'The request is invalid.' : 'Administration request failed.' } });
+    }
   };
 }
 

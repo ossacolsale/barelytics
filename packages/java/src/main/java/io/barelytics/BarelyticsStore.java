@@ -154,6 +154,62 @@ public final class BarelyticsStore implements AutoCloseable {
         }
     }
 
+    public Map<String,Object> adminData(String resource, Map<String,String> query) throws SQLException {
+        PrivacyConfiguration config=configuration();
+        int requested;try{requested=Integer.parseInt(query.getOrDefault("period","30"));}catch(NumberFormatException e){requested=30;}
+        int period=List.of(7,30,90,180,365).contains(requested)?Math.min(requested,config.retentionDays()):Math.min(30,config.retentionDays());
+        String from=LocalDate.now(ZoneOffset.UTC).minusDays(period-1L).toString(),to=utcDay();
+        String bucket=query.getOrDefault("bucket","day");if(!List.of("day","week","month").contains(bucket))bucket="day";
+        String group=switch(bucket){case "week"->"strftime('%Y-W%W',day)";case "month"->"substr(day,1,7)";default->"day";};
+        int page,perPage;try{page=Math.max(1,Math.min(10000,Integer.parseInt(query.getOrDefault("page","1"))));}catch(NumberFormatException e){page=1;}try{perPage=Math.max(1,Math.min(50,Integer.parseInt(query.getOrDefault("per_page","50"))));}catch(NumberFormatException e){perPage=50;}
+        int offset=(page-1)*perPage;
+        if(resource.equals("privacy"))return privacyMap(config);
+        if(resource.equals("dashboard")){
+            long total=adminScalar("SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE day BETWEEN ? AND ?",from,to);
+            long active=adminScalar("SELECT COUNT(DISTINCT path) FROM pageviews_daily WHERE day BETWEEN ? AND ?",from,to);
+            return Map.of("total",total,"active_pages",active,"daily_average",Math.round((double)total/period*10.0)/10.0,"timeline",adminRows("SELECT "+group+" AS period,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY period ORDER BY period",from,to),"top_pages",adminRows("SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY path ORDER BY views DESC,path LIMIT 10",from,to),"period",period,"bucket",bucket);
+        }
+        if(resource.equals("pages")||resource.equals("daily")){
+            String grouped=resource.equals("pages")?"path":"day,path";long count=adminScalar("SELECT COUNT(*) FROM (SELECT "+grouped+" FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY "+grouped+")",from,to);
+            String order=resource.equals("pages")?"views DESC,path":"day DESC,views DESC,path";
+            return Map.of("rows",adminRows("SELECT "+grouped+",SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY "+grouped+" ORDER BY "+order+" LIMIT ? OFFSET ?",from,to,perPage,offset),"total_rows",count,"page",page,"per_page",perPage,"pages",(int)Math.ceil((double)count/perPage),"period",period);
+        }
+        if(resource.equals("page")){
+            String path=normalizePath(query.getOrDefault("path",""));if(path==null)throw new IllegalArgumentException("Invalid page path.");
+            return Map.of("path",path,"total",adminScalar("SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ?",path,from,to),"timeline",adminRows("SELECT "+group+" AS period,SUM(views) AS views FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ? GROUP BY period ORDER BY period",path,from,to),"period",period,"bucket",bucket);
+        }
+        if(resource.equals("dimensions")){
+            String dimension=query.getOrDefault("dimension","country");Map<String,String[]> map=Map.of("country",new String[]{"country_collection","pageviews_daily","country"},"referrer",new String[]{"referrer_collection","referrers_daily","referrer_host"},"browser",new String[]{"browser_collection","dimensions_daily","value"},"device",new String[]{"device_collection","dimensions_daily","value"},"os",new String[]{"os_collection","dimensions_daily","value"});
+            String[] spec=map.get(dimension);if(spec==null)throw new IllegalArgumentException("Unsupported dimension.");boolean enabled=enabled(config,spec[0]);
+            if(!enabled)return Map.of("dimension",dimension,"label",dimension,"enabled",false,"rows",List.of(),"total_rows",0,"page",1,"pages",1);
+            String where=spec[1].equals("dimensions_daily")?"dimension=? AND day BETWEEN ? AND ?":"day BETWEEN ? AND ?";Object[] args=spec[1].equals("dimensions_daily")?new Object[]{dimension,from,to}:new Object[]{from,to};
+            long count=adminScalar("SELECT COUNT(*) FROM (SELECT "+spec[2]+" FROM "+spec[1]+" WHERE "+where+" GROUP BY "+spec[2]+")",args);
+            Object[] rowArgs=java.util.Arrays.copyOf(args,args.length+2);rowArgs[args.length]=perPage;rowArgs[args.length+1]=offset;
+            return Map.of("dimension",dimension,"label",dimension,"enabled",true,"rows",adminRows("SELECT "+spec[2]+" AS value,SUM(views) AS views FROM "+spec[1]+" WHERE "+where+" GROUP BY "+spec[2]+" ORDER BY views DESC,value LIMIT ? OFFSET ?",rowArgs),"total_rows",count,"page",page,"per_page",perPage,"pages",(int)Math.ceil((double)count/perPage));
+        }
+        if(resource.equals("system"))return Map.of("application","Barelytics Java","runtime",System.getProperty("java.version"),"schema_version",SCHEMA_VERSION,"current_schema_version",SCHEMA_VERSION,"migration_required",false,"capabilities",Map.of("cleanup",true,"delete_all",true,"logout",false));
+        if(resource.equals("audit")){AuditReport report=audit();return Map.of("application",report.application(),"contract_version",report.contractVersion(),"schema_version",report.schemaVersion(),"profile",report.profile(),"fingerprint",report.fingerprint(),"configuration",privacyMap(report.configuration()),"checks",report.checks(),"result",report.result());}
+        if(resource.equals("integration"))return Map.of("instructions","Mount BarelyticsAdminServlet and supply host authorization and CSRF callbacks.","javascript_snippet","new BarelyticsAdminServlet(store, authorizeAdmin, verifyCsrf, csrfToken)");
+        throw new IllegalArgumentException("Unknown administration resource.");
+    }
+
+    public Map<String,Object> updateAdminSettings(Map<String,Object> input)throws SQLException{
+        int retention;try{retention=((Number)input.get("retention_days")).intValue();}catch(Exception e){throw new IllegalArgumentException("Invalid retention period.");}if(!Set.of(30,90,180,365).contains(retention))throw new IllegalArgumentException("Invalid retention period.");
+        List<String> paths=settingLines(input.get("path_exclusions"),4000,true),bots=settingLines(input.get("bot_patterns"),2000,false);
+        boolean extended=DIMENSIONS.stream().anyMatch(k->Boolean.TRUE.equals(input.get(k)));if(extended&&!"yes".equals(input.get("confirmation")))throw new IllegalArgumentException("Confirm optional dimension collection.");
+        synchronized(lock){connection.setAutoCommit(false);try{for(String key:DIMENSIONS)set(key,Boolean.TRUE.equals(input.get(key))?"1":"0");set("retention_days",Integer.toString(retention));set("path_exclusions",String.join("\n",paths));set("bot_patterns",String.join("\n",bots));recordHistory();connection.commit();}catch(SQLException|RuntimeException e){connection.rollback();throw e;}finally{connection.setAutoCommit(true);}}
+        return privacyMap(configuration());
+    }
+
+    public void deleteAll()throws SQLException{synchronized(lock){connection.setAutoCommit(false);try(Statement s=connection.createStatement()){for(String table:List.of("pageviews_daily","referrers_daily","dimensions_daily"))s.executeUpdate("DELETE FROM "+table);connection.commit();}catch(SQLException e){connection.rollback();throw e;}finally{connection.setAutoCommit(true);}}}
+
+    private long adminScalar(String sql,Object...args)throws SQLException{synchronized(lock){try(PreparedStatement p=connection.prepareStatement(sql)){for(int i=0;i<args.length;i++)p.setObject(i+1,args[i]);try(ResultSet r=p.executeQuery()){return r.next()?r.getLong(1):0;}}}}
+    private long scalar(String sql,Object...values)throws SQLException{try(PreparedStatement p=connection.prepareStatement(sql)){for(int i=0;i<values.length;i++)p.setObject(i+1,values[i]);try(ResultSet r=p.executeQuery()){return r.next()?r.getLong(1):0;}}}
+    private List<Map<String,Object>> adminRows(String sql,Object...args)throws SQLException{synchronized(lock){try(PreparedStatement p=connection.prepareStatement(sql)){for(int i=0;i<args.length;i++)p.setObject(i+1,args[i]);try(ResultSet r=p.executeQuery()){List<Map<String,Object>> rows=new ArrayList<>();while(r.next()){Map<String,Object> row=new LinkedHashMap<>();for(int i=1;i<=r.getMetaData().getColumnCount();i++)row.put(r.getMetaData().getColumnLabel(i),r.getObject(i));rows.add(row);}return rows;}}}}
+    private static boolean enabled(PrivacyConfiguration c,String key){return switch(key){case "country_collection"->c.countryCollection();case "referrer_collection"->c.referrerCollection();case "browser_collection"->c.browserCollection();case "device_collection"->c.deviceCollection();default->c.osCollection();};}
+    private static Map<String,Object> privacyMap(PrivacyConfiguration c){Map<String,Object> m=new LinkedHashMap<>();m.put("country_collection",c.countryCollection());m.put("referrer_collection",c.referrerCollection());m.put("browser_collection",c.browserCollection());m.put("device_collection",c.deviceCollection());m.put("os_collection",c.osCollection());m.put("retention_days",c.retentionDays());m.put("profile",c.profile());m.put("path_exclusions",c.pathExclusions());m.put("bot_patterns",c.botPatterns());return m;}
+    private static List<String> settingLines(Object value,int max,boolean paths){if(!(value instanceof String raw)||raw.getBytes(StandardCharsets.UTF_8).length>max)throw new IllegalArgumentException("Invalid settings.");List<String> lines=raw.lines().map(String::trim).filter(x->!x.isEmpty()).distinct().sorted().toList();if(lines.stream().anyMatch(x->x.length()>200||(paths&&(!x.startsWith("/")||x.contains("?")||x.contains("#")))))throw new IllegalArgumentException("Invalid settings.");return lines;}
+
     private void migrate() throws SQLException {
         try (Statement s=connection.createStatement()) {
             for (String sql : List.of(
@@ -185,7 +241,6 @@ public final class BarelyticsStore implements AutoCloseable {
     private String get(String key,String fallback) throws SQLException {try(PreparedStatement p=connection.prepareStatement("SELECT value FROM settings WHERE key=?")){p.setString(1,key);try(ResultSet r=p.executeQuery()){return r.next()?r.getString(1):fallback;}}}
     private void set(String key,String value) throws SQLException {upsert("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",key,value);}
     private void upsert(String sql,Object...values)throws SQLException{try(PreparedStatement p=connection.prepareStatement(sql)){for(int i=0;i<values.length;i++)p.setObject(i+1,values[i]);p.executeUpdate();}}
-    private long scalar(String sql,Object...values)throws SQLException{try(PreparedStatement p=connection.prepareStatement(sql)){for(int i=0;i<values.length;i++)p.setObject(i+1,values[i]);try(ResultSet r=p.executeQuery()){return r.next()?r.getLong(1):0;}}}
     private List<Row> pairs(String sql,String from,String to)throws SQLException{List<Row>rows=new ArrayList<>();try(PreparedStatement p=connection.prepareStatement(sql)){p.setString(1,from);p.setString(2,to);try(ResultSet r=p.executeQuery()){while(r.next())rows.add(new Row(r.getString(1),r.getLong(2)));}}return List.copyOf(rows);}
     private void rollback(){try{connection.rollback();}catch(SQLException ignored){}try{connection.setAutoCommit(true);}catch(SQLException ignored){}}
     private static boolean validPattern(String x){return x.startsWith("/")&&x.length()<=200&&!x.contains("?")&&!x.contains("#");}

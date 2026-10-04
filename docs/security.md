@@ -26,3 +26,6 @@ For a forgotten admin password, generate a fresh high-entropy token, use `token-
 ## Reporting
 
 See [SECURITY.md](../SECURITY.md) for private vulnerability reporting and coordinated disclosure guidance.
+## Administration authentication
+
+Embedded Node, Python, .NET, Java, and Ruby adapters accept authorization and CSRF callbacks from the host application. Keep these routes behind an administrator role or policy and pass the host's CSRF token through the adapter. The shared UI is same-origin and sends no analytics events. Static UI files contain no credentials; API requests still require authorization. WordPress uses `manage_options` plus a WordPress nonce. Standalone PHP continues to use its own password hash, throttling, secure session cookies, and CSRF token.

@@ -11,6 +11,8 @@
   </PropertyGroup>
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="README.md" />
+    <EmbeddedResource Include="admin-ui/**/*" LogicalName="Barelytics.AdminUi.%(Filename)%(Extension)" />
+    <Content Include="admin-ui/**/*" Pack="true" PackagePath="contentFiles/any/any/admin-ui/%(RecursiveDir)%(Filename)%(Extension)" PackageCopyToOutput="true" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
   </ItemGroup>

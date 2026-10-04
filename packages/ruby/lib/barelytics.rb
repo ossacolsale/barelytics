@@ -117,6 +117,85 @@ module Barelytics
       end
     end
 
+    def admin_data(resource, query = {})
+      config = configuration
+      requested = Integer(query.fetch('period', 30)) rescue 30
+      period = RETENTION.include?(requested) ? [requested, config[:retention_days]].min : [30, config[:retention_days]].min
+      to = Time.now.utc.to_date; from = to - (period - 1)
+      bucket = %w[day week month].include?(query['bucket']) ? query['bucket'] : 'day'
+      group = { 'day' => 'day', 'week' => "strftime('%Y-W%W',day)", 'month' => 'substr(day,1,7)' }.fetch(bucket)
+      begin page = Integer(query.fetch('page', 1)); rescue ArgumentError, TypeError; page = 1; end
+      begin per_page = Integer(query.fetch('per_page', 50)); rescue ArgumentError, TypeError; per_page = 50; end
+      page = [[page, 1].max, 10_000].min
+      per_page = [[per_page, 1].max, 50].min
+      offset = (page - 1) * per_page
+      if resource == 'privacy'
+        return config.transform_keys(&:to_s)
+      elsif resource == 'dashboard'
+        total = @db.get_first_value('SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE day BETWEEN ? AND ?', [from.to_s, to.to_s]).to_i
+        active = @db.get_first_value('SELECT COUNT(DISTINCT path) FROM pageviews_daily WHERE day BETWEEN ? AND ?', [from.to_s, to.to_s]).to_i
+        timeline = admin_rows("SELECT #{group} AS period,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY period ORDER BY period", from, to)
+        top = admin_rows('SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY path ORDER BY views DESC,path LIMIT 10', from, to)
+        return { 'total' => total, 'active_pages' => active, 'daily_average' => (total.to_f / period).round(1), 'timeline' => timeline, 'top_pages' => top, 'period' => period, 'bucket' => bucket }
+      elsif %w[pages daily].include?(resource)
+        grouped = resource == 'pages' ? 'path' : 'day,path'
+        count = @db.get_first_value("SELECT COUNT(*) FROM (SELECT #{grouped} FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY #{grouped})", [from.to_s, to.to_s]).to_i
+        order = resource == 'pages' ? 'views DESC,path' : 'day DESC,views DESC,path'
+        rows = admin_rows("SELECT #{grouped},SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY #{grouped} ORDER BY #{order} LIMIT ? OFFSET ?", from, to, per_page, offset)
+        return { 'rows' => rows, 'total_rows' => count, 'page' => page, 'per_page' => per_page, 'pages' => (count.to_f / per_page).ceil, 'period' => period }
+      elsif resource == 'page'
+        path = Barelytics.normalize_path(query['path'].to_s)
+        raise ArgumentError, 'Invalid page path.' unless path
+        total = @db.get_first_value('SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ?', [path, from.to_s, to.to_s]).to_i
+        timeline = admin_rows("SELECT #{group} AS period,SUM(views) AS views FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ? GROUP BY period ORDER BY period", path, from, to)
+        return { 'path' => path, 'total' => total, 'timeline' => timeline, 'period' => period, 'bucket' => bucket }
+      elsif resource == 'dimensions'
+        dimension = query.fetch('dimension', 'country')
+        mapping = { 'country' => [:country_collection, 'pageviews_daily', 'country'], 'referrer' => [:referrer_collection, 'referrers_daily', 'referrer_host'], 'browser' => [:browser_collection, 'dimensions_daily', 'value'], 'device' => [:device_collection, 'dimensions_daily', 'value'], 'os' => [:os_collection, 'dimensions_daily', 'value'] }
+        enabled_key, table, column = mapping.fetch(dimension) { raise ArgumentError, 'Unsupported dimension.' }
+        unless config[enabled_key]
+          return { 'dimension' => dimension, 'label' => dimension, 'enabled' => false, 'rows' => [], 'total_rows' => 0, 'page' => 1, 'pages' => 1 }
+        end
+        where, args = table == 'dimensions_daily' ? ['dimension=? AND day BETWEEN ? AND ?', [dimension, from.to_s, to.to_s]] : ['day BETWEEN ? AND ?', [from.to_s, to.to_s]]
+        count = @db.get_first_value("SELECT COUNT(*) FROM (SELECT #{column} FROM #{table} WHERE #{where} GROUP BY #{column})", args).to_i
+        rows = admin_rows("SELECT #{column} AS value,SUM(views) AS views FROM #{table} WHERE #{where} GROUP BY #{column} ORDER BY views DESC,value LIMIT ? OFFSET ?", *args, per_page, offset)
+        return { 'dimension' => dimension, 'label' => dimension, 'enabled' => true, 'rows' => rows, 'total_rows' => count, 'page' => page, 'per_page' => per_page, 'pages' => (count.to_f / per_page).ceil }
+      elsif resource == 'system'
+        return { 'application' => 'Barelytics Ruby', 'runtime' => RUBY_VERSION, 'schema_version' => SCHEMA_VERSION, 'current_schema_version' => SCHEMA_VERSION, 'migration_required' => false, 'capabilities' => { 'cleanup' => true, 'delete_all' => true, 'logout' => false } }
+      elsif resource == 'audit'
+        return audit.transform_keys(&:to_s)
+      elsif resource == 'integration'
+        return { 'instructions' => 'Mount Barelytics::RackAdmin behind host application authentication and CSRF middleware.', 'javascript_snippet' => "use Barelytics::RackAdmin, store: store, authorize: ->(env) { env['current_user']&.admin? }, verify_csrf: csrf_verifier" }
+      end
+      raise ArgumentError, 'Unknown administration resource.'
+    end
+
+    def update_admin_settings(values)
+      retention = Integer(values.fetch('retention_days')) rescue nil
+      raise ArgumentError, 'Invalid retention period.' unless RETENTION.include?(retention)
+      lines = lambda do |name, max_bytes, path_mode|
+        raw = values.fetch(name, '')
+        raise ArgumentError, 'Invalid settings.' unless raw.is_a?(String) && raw.bytesize <= max_bytes
+        entries = raw.lines.map(&:strip).reject(&:empty?).uniq.sort
+        raise ArgumentError, 'Invalid settings.' if entries.any? { |x| x.length > 200 || (path_mode && (!x.start_with?('/') || x.match?(/[?#]/))) }
+        entries
+      end
+      exclusions, bots = lines.call('path_exclusions', 4000, true), lines.call('bot_patterns', 2000, false)
+      settings = DIMENSIONS.to_h { |key| [key, values[key] == true] }
+      raise ArgumentError, 'Confirm optional dimension collection.' if settings.value?(true) && values['confirmation'] != 'yes'
+      @mutex.synchronize do
+        @db.transaction do
+          settings.each { |key, enabled| set(key, enabled ? '1' : '0') }
+          set('retention_days', retention.to_s); set('path_exclusions', exclusions.join("\n")); set('bot_patterns', bots.join("\n")); record_history
+        end
+      end
+      configuration.transform_keys(&:to_s)
+    end
+
+    def delete_all
+      @mutex.synchronize { @db.transaction { %w[pageviews_daily referrers_daily dimensions_daily].each { |table| @db.execute("DELETE FROM #{table}") } } }
+    end
+
     def audit
       config = configuration
       tables = @db.execute("SELECT name FROM sqlite_master WHERE type='table'").flatten
@@ -192,6 +271,11 @@ module Barelytics
       'Other'
     end
     def rows(sql, from, to) = @db.execute(sql, [from.to_s, to.to_s]).map { |r| { label: r[0], views: r[1].to_i } }
+    def admin_rows(sql, *args)
+      result = @db.execute2(sql, args.map(&:to_s))
+      columns = result.shift
+      result.map { |row| columns.zip(row).to_h.transform_values { |value| value.is_a?(Integer) ? value : value } }
+    end
     def fingerprint(config) = Digest::SHA256.hexdigest(JSON.generate({ contract_version: CONTRACT_VERSION, schema_version: SCHEMA_VERSION, configuration: config }))
     def record_history
       config = configuration
@@ -208,6 +292,73 @@ module Barelytics
         @store.track_page_view(path: env['PATH_INFO'], user_agent: env['HTTP_USER_AGENT'], country: env[@country_header], referrer: env['HTTP_REFERER'])
       end
       [status, headers, body]
+    end
+  end
+
+  class RackAdmin
+    def initialize(app, store:, authorize:, verify_csrf:, csrf_token:, base_path: '/barelytics/admin')
+      @app, @store, @authorize, @verify_csrf, @csrf_token, @base_path = app, store, authorize, verify_csrf, csrf_token, base_path.sub(%r{/+$}, '')
+    end
+
+    def call(env)
+      path = env['PATH_INFO'].to_s
+      return @app.call(env) unless path == @base_path || path.start_with?(@base_path + '/')
+      return json(403, nil, 'forbidden', 'Administrator access required.') unless @authorize.call(env)
+      suffix = path.delete_prefix(@base_path)
+      if %w[GET HEAD].include?(env['REQUEST_METHOD']) && ['', '/'].include?(suffix)
+        return [308, headers('Location' => @base_path + '/'), []] if suffix.empty?
+        return asset('index.html')
+      end
+      if env['REQUEST_METHOD'] == 'GET' && suffix.start_with?('/admin-ui/')
+        name = suffix.split('/').last
+        return json(404, nil, 'not_found', 'Resource not found.') unless %w[app.js admin.css config.js].include?(name)
+        return asset(name)
+      end
+      if suffix.start_with?('/api/')
+        resource = suffix.delete_prefix('/api/')
+        if env['REQUEST_METHOD'] == 'GET'
+          data = resource == 'session' ? { authenticated: true, csrf: @csrf_token.call(env), retention_days: @store.configuration[:retention_days], capabilities: { logout: false, delete_all: true } } : @store.admin_data(resource, query(env['QUERY_STRING']))
+          return json(200, data)
+        end
+        return json(405, nil, 'method_not_allowed', 'Method not allowed.') unless env['REQUEST_METHOD'] == 'POST'
+        raw = env['rack.input'].read(8193).to_s
+        return json(413, nil, 'too_large', 'Request is too large.') if raw.bytesize > 8192
+        input = JSON.parse(raw)
+        return json(403, nil, 'csrf', 'Request verification failed.') unless @verify_csrf.call(env, input['csrf'].to_s)
+        data = case resource
+        when 'privacy' then @store.update_admin_settings(input)
+        when 'strict' then @store.return_to_strict_mode; @store.configuration.transform_keys(&:to_s)
+        when 'cleanup' then { complete: @store.cleanup }
+        when 'delete-all' then raise ArgumentError unless input['confirmation'] == 'DELETE'; @store.delete_all; { deleted: true }
+        else raise ArgumentError
+        end
+        return json(200, data)
+      end
+      json(404, nil, 'not_found', 'Resource not found.')
+    rescue JSON::ParserError, ArgumentError, TypeError
+      json(400, nil, 'invalid_request', 'The request is invalid.')
+    rescue StandardError
+      json(500, nil, 'internal_error', 'The administration request failed.')
+    end
+
+    private
+    def query(raw) = URI.decode_www_form(raw.to_s).to_h
+    def asset(name)
+      body = if name == 'config.js'
+        "window.BARELYTICS_ADMIN_CONFIG = { apiBase: 'api/' };"
+      else
+        File.binread(File.join(__dir__, 'barelytics', 'admin-ui', name))
+      end
+      type = name.end_with?('.html') ? 'text/html; charset=utf-8' : name.end_with?('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8'
+      [200, headers('Content-Type' => type), [body]]
+    rescue Errno::ENOENT
+      json(503, nil, 'ui_unavailable', 'Administration UI is unavailable.')
+    end
+    def headers(extra = {}) = { 'Content-Type' => 'application/json; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Content-Type-Options' => 'nosniff', 'Referrer-Policy' => 'no-referrer', 'Content-Security-Policy' => "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" }.merge(extra)
+    def json(status, data, code = nil, message = nil)
+      ok = status < 300
+      error = ok ? nil : { code: code, message: message }
+      [status, headers, [JSON.generate({ ok: ok, data: data, error: error })]]
     end
   end
 end

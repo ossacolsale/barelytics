@@ -97,6 +97,15 @@ curl -sS -o /dev/null -D "$tmp/login-headers" -b "$jar" -c "$jar" -d "csrf=$csrf
 after="$(awk '$6 == "PHPSESSID" {print $7}' "$jar")"
 [[ -n "$after" && "$before" != "$after" ]]
 
+shared_ui="$(curl -sS -b "$jar" "$base/barelytics/admin.php?ui=1")"
+grep -q 'Analytics administration' <<<"$shared_ui"
+session_api="$(curl -sS -b "$jar" "$base/barelytics/admin.php?api=session")"
+api_csrf="$(php -r '$j=json_decode($argv[1], true); if (empty($j["ok"]) || empty($j["data"]["authenticated"])) exit(1); echo $j["data"]["csrf"];' "$session_api")"
+dashboard_api="$(curl -sS -b "$jar" "$base/barelytics/admin.php?api=dashboard&period=30&bucket=day")"
+php -r '$j=json_decode($argv[1], true); if (empty($j["ok"]) || !array_key_exists("active_pages", $j["data"])) exit(1);' "$dashboard_api"
+strict_api="$(curl -sS -b "$jar" -H 'Content-Type: application/json' --data-binary "{\"csrf\":\"$api_csrf\"}" "$base/barelytics/admin.php?api=strict")"
+php -r '$j=json_decode($argv[1], true); if (empty($j["ok"]) || $j["data"]["profile"] !== "strict") exit(1);' "$strict_api"
+
 status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data '{"path":"https://evil.example/"}' "$base/barelytics/track.php")"
 [[ "$status" == 400 ]]
 status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data '{' "$base/barelytics/track.php")"

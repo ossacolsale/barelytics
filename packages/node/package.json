@@ -12,5 +12,6 @@
   "scripts": {
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "files": ["src", "admin-ui"]
 }

@@ -25,11 +25,11 @@ The database is created at `dataDirectory/analytics.sqlite`, outside the public 
 
 Strict Mode is the default: daily aggregate page views by normalized path, with no cookies, browser storage, visitor/session IDs, IP storage, fingerprinting, event history, or third-party requests. Country, referrer hostname, browser, device, and OS aggregates are off. `updatePrivacy` requires the explicit acknowledgement `yes` whenever an optional dimension is enabled; `returnToStrictMode()` disables all dimensions. The `audit()` method returns effective configuration, schema version, fingerprint, and technical checks; it is not a legal certification.
 
-The library exposes `dashboard(periodDays)`, `cleanup()`, `audit()`, and privacy controls. Mount `createAdminHandler` only behind your application's administrator authentication and pass a CSRF verifier; both callbacks are mandatory. It does not create an administrator identity or public admin route for you.
+The library exposes `dashboard(periodDays)`, `cleanup()`, `audit()`, and privacy controls. Mount `createAdminHandler` behind your application's administrator authentication and pass `authorize`, `verifyCsrf`, and (when the UI needs to display a token) `csrfToken` callbacks. It serves the shared zero-build admin page, static assets, and JSON API below its mount path, including page/day detail, dimensions, privacy settings, bounded cleanup, delete-all, system status, and audit. The mounted route inherits the host application's identity and permission model; Barelytics does not create an administrator database.
 
 ## Framework adapters
 
-Express, Fastify, NestJS, Next.js Node runtime, and plain Node HTTP can mount `createTrackHandler` at a same-origin route and use `trackPageView` from rendered-page handlers. Keep admin routes behind application authentication and CSRF checks. For Next.js, use the Node runtime and persistent local storage; edge and ephemeral serverless filesystems are unsupported. SPA route changes require an explicit router integration if each route should count as a page view.
+Express, Fastify, NestJS, Next.js Node runtime, and plain Node HTTP can mount the handlers at same-origin routes. For Express, mount `createAdminHandler` after the host's authentication middleware and adapt the CSRF callbacks to the host's session token. For Next.js, use the Node runtime and persistent local storage; edge and ephemeral serverless filesystems are unsupported. SPA route changes require an explicit router integration if each route should count as a page view.
 
 ## Tests
 

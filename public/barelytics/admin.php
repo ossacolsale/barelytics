@@ -4,6 +4,7 @@ declare(strict_types=1);
 if (PHP_VERSION_ID < 80100 || PHP_VERSION_ID > 80599) { header('Location: install.php'); exit; }
 
 require_once __DIR__ . '/src/Barelytics.php';
+require_once __DIR__ . '/src/AdminApi.php';
 
 use function Barelytics\adminHeaders;
 use function Barelytics\cleanRetentionBatch;
@@ -136,6 +137,31 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 }
 
 $authenticated = !empty($_SESSION['authenticated']) && $setupDone;
+if (isset($_GET['api'])) {
+    $resource = is_string($_GET['api']) ? $_GET['api'] : '';
+    $input = [];
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+        $raw = file_get_contents('php://input');
+        if (!is_string($raw) || strlen($raw) > 8192) \Barelytics\adminApiReply(413, null, 'too_large', 'Request is too large.');
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) \Barelytics\adminApiReply(400, null, 'invalid_json', 'The request body is invalid.');
+        $input = $decoded;
+    }
+    \Barelytics\dispatchAdminApi($db, $resource, $_GET, $input, $authenticated, $csrf);
+}
+if (isset($_GET['config'])) {
+    if (!$authenticated) { http_response_code(403); exit; }
+    header('Content-Type: text/javascript; charset=UTF-8'); header('Cache-Control: no-store');
+    echo 'window.BARELYTICS_ADMIN_CONFIG = { apiBase: "admin.php", apiQuery: true, loginUrl: "admin.php", accountUrl: "account.php" };'; exit;
+}
+if (($_GET['ui'] ?? '') === '1') {
+    if (!$authenticated) { header('Location: admin.php'); exit; }
+    header('Content-Type: text/html; charset=UTF-8');
+    $html = file_get_contents(__DIR__ . '/admin-ui/index.html');
+    if (!is_string($html)) { http_response_code(503); exit('Administration UI unavailable.'); }
+    $html = str_replace('admin-ui/config.js', 'admin.php?config=1', $html);
+    echo $html; exit;
+}
 if ($authenticated && $currentSchema >= CURRENT_SCHEMA_VERSION) runScheduledCleanupIfDue($db);
 $periods = ['7' => '7 days', '30' => '30 days', '90' => '90 days', '180' => '180 days', '365' => '365 days'];
 $requestedPeriod = is_string($_GET['period'] ?? null) ? $_GET['period'] : '30';
@@ -225,7 +251,7 @@ $metricAverage = $view === 'page' ? ($period > 0 ? round($pageTotal / $period, 1
 <section class="card"><h2>Database upgrade required</h2><p>Your aggregate data is intact. Barelytics will apply versioned, retry-safe database migrations, then run a read/write check.</p><p>Back up the private data directory before upgrading.</p><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="migrate"><button>Apply database upgrade</button></form></section>
 <?php else: ?>
 <nav class="section-nav" aria-label="Administration sections">
-<a href="#statistics">Statistics</a><a href="#explore">Explore data</a><a href="#integration">Site integration</a><a href="#privacy">Privacy</a><a href="#maintenance">Maintenance</a><a href="#system">System</a><a href="audit.php">Privacy audit</a><a href="account.php">Account</a>
+<a href="admin.php?ui=1">Shared administration UI</a><a href="#statistics">Statistics</a><a href="#explore">Explore data</a><a href="#integration">Site integration</a><a href="#privacy">Privacy</a><a href="#maintenance">Maintenance</a><a href="#system">System</a><a href="audit.php">Privacy audit</a><a href="account.php">Account</a>
 <form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="logout"><button class="secondary">Sign out</button></form>
 </nav>
 

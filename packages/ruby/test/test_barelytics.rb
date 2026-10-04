@@ -3,6 +3,7 @@
 require 'minitest/autorun'
 require 'json'
 require 'tmpdir'
+require 'stringio'
 require_relative '../lib/barelytics'
 
 class BarelyticsTest < Minitest::Test
@@ -37,6 +38,9 @@ class BarelyticsTest < Minitest::Test
       refute store.track_page_view(path: '/private/record')
       refute store.track_page_view(path: '/article', user_agent: 'Googlebot')
       assert_equal 1, store.dashboard[:total]
+      assert_equal 1, store.admin_data('dashboard')['active_pages']
+      assert_equal '/article', store.admin_data('pages')['rows'].first['path']
+      refute store.admin_data('dimensions', 'dimension' => 'country')['enabled']
       assert_raises(ArgumentError) { store.update_privacy({ country_collection: true }) }
       store.update_privacy({ country_collection: true, referrer_collection: true, browser_collection: true, device_collection: true, os_collection: true }, acknowledged: true)
       assert_equal 'extended', store.configuration[:profile]
@@ -61,5 +65,39 @@ class BarelyticsTest < Minitest::Test
       assert_equal 'PASS', second.audit[:result]
       second.close
     end
+  end
+
+  def test_rack_admin_shares_ui_and_applies_host_auth_and_csrf_callbacks
+    Dir.mktmpdir do |dir|
+      store = Barelytics::Store.new(data_directory: dir)
+      store.track_page_view(path: '/article')
+      app = Barelytics::RackAdmin.new(->(_env) { [404, {}, []] }, store: store,
+        authorize: ->(env) { env['HTTP_X_ADMIN'] == 'yes' },
+        verify_csrf: ->(_env, token) { token == 'valid-token' },
+        csrf_token: ->(_env) { 'valid-token' })
+      status, headers, body = rack_request(app, 'GET', '/barelytics/admin/api/dashboard', extra: { 'HTTP_X_ADMIN' => 'yes' })
+      assert_equal 200, status
+      assert_equal 1, JSON.parse(body.join)['data']['active_pages']
+      assert_equal 'nosniff', headers['X-Content-Type-Options']
+      status, _headers, body = rack_request(app, 'GET', '/barelytics/admin/', extra: { 'HTTP_X_ADMIN' => 'yes' })
+      assert_equal 200, status
+      assert_includes body.join, 'Analytics administration'
+      status, = rack_request(app, 'GET', '/barelytics/admin/api/session')
+      assert_equal 403, status
+      status, = rack_request(app, 'POST', '/barelytics/admin/api/strict', body: { csrf: 'wrong' }.to_json, extra: { 'HTTP_X_ADMIN' => 'yes' })
+      assert_equal 403, status
+      store.close
+    end
+  end
+
+  private
+
+  def rack_request(app, method, path, body: '', extra: {})
+    require 'uri'
+    uri = URI(path)
+    env = { 'REQUEST_METHOD' => method, 'PATH_INFO' => uri.path, 'QUERY_STRING' => uri.query.to_s,
+      'rack.input' => StringIO.new(body), 'CONTENT_LENGTH' => body.bytesize.to_s }.merge(extra)
+    status, headers, response = app.call(env)
+    [status, headers, response]
   end
 end

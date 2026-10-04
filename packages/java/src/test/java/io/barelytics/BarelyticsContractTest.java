@@ -43,6 +43,9 @@ class BarelyticsContractTest {
             assertFalse(store.trackPageView("/private/record",null,null,null));
             assertFalse(store.trackPageView("/article","Googlebot",null,null));
             assertEquals(1,store.dashboard(30).total());
+            assertEquals(1L,store.adminData("dashboard",Map.of("period","30","bucket","day")).get("active_pages"));
+            assertEquals(false,store.adminData("dimensions",Map.of("dimension","country")).get("enabled"));
+            assertEquals("/article",((Map<?,?>)((List<?>)store.adminData("pages",Map.of()).get("rows")).getFirst()).get("path"));
             assertThrows(IllegalArgumentException.class,()->store.updatePrivacy(Map.of("country_collection",true),false));
             store.updatePrivacy(Map.of("country_collection",true,"referrer_collection",true,"browser_collection",true,"device_collection",true,"os_collection",true),true);
             assertEquals("extended",store.configuration().profile());

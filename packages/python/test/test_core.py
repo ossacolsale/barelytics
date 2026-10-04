@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from wsgiref.util import setup_testing_defaults
 from io import BytesIO
+from urllib.parse import urlsplit
 
 from barelytics import Barelytics, create_wsgi_app, is_bot, normalize_path
 
@@ -55,13 +56,20 @@ class BarelyticsTests(unittest.TestCase):
     def test_wsgi_protocol_statuses(self):
         with tempfile.TemporaryDirectory() as directory:
             analytics = Barelytics(directory)
-            app = create_wsgi_app(analytics, authorize=lambda env: env.get("HTTP_X_ADMIN") == "yes", verify_csrf=lambda _env, token: token == "valid-token")
+            app = create_wsgi_app(analytics, authorize=lambda env: env.get("HTTP_X_ADMIN") == "yes", verify_csrf=lambda _env, token: token == "valid-token", csrf_token=lambda _env: "valid-token")
             self.assertEqual(self.request(app, "POST", b'{"path":"/article"}')[0], "204 No Content")
             self.assertEqual(self.request(app, "POST", b'{"path":"/article","visitor_id":"x"}')[0], "400 Bad Request")
             self.assertEqual(self.request(app, "GET", b"")[0], "405 Method Not Allowed")
             self.assertEqual(analytics.dashboard()["total"], 1)
             self.assertEqual(self.request(app, "GET", b"", path="/barelytics/admin")[0], "403 Forbidden")
             self.assertEqual(self.request(app, "GET", b"", path="/barelytics/admin", extra={"HTTP_X_ADMIN": "yes"})[0], "200 OK")
+            ui = self.request(app, "GET", b"", path="/barelytics/admin/", extra={"HTTP_X_ADMIN": "yes"})
+            self.assertEqual(ui[0], "200 OK")
+            self.assertIn(b"BARELYTICS_ADMIN_CONFIG", self.request(app, "GET", b"", path="/barelytics/admin/admin-ui/config.js", extra={"HTTP_X_ADMIN": "yes"})[2])
+            dashboard = self.request(app, "GET", b"", path="/barelytics/admin/api/dashboard", extra={"HTTP_X_ADMIN": "yes"})
+            self.assertEqual(json.loads(dashboard[2])["data"]["active_pages"], 1)
+            dimensions = self.request(app, "GET", b"", path="/barelytics/admin/api/dimensions?dimension=country", extra={"HTTP_X_ADMIN": "yes"})
+            self.assertFalse(json.loads(dimensions[2])["data"]["enabled"])
             self.assertEqual(self.request(app, "POST", b'{"action":"strict","csrf":"invalid"}', path="/barelytics/admin", extra={"HTTP_X_ADMIN": "yes"})[0], "403 Forbidden")
             self.assertEqual(self.request(app, "POST", b'{"action":"privacy","values":{"country_collection":true},"confirmation":true,"csrf":"valid-token"}', path="/barelytics/admin", extra={"HTTP_X_ADMIN": "yes"})[0], "204 No Content")
             self.assertEqual(analytics.audit()["profile"], "extended")
@@ -71,9 +79,10 @@ class BarelyticsTests(unittest.TestCase):
 
     @staticmethod
     def request(app, method, body, path="/barelytics/track", extra=None):
+        parsed = urlsplit(path)
         environ = {}
         setup_testing_defaults(environ)
-        environ.update({"REQUEST_METHOD": method, "PATH_INFO": path, "CONTENT_LENGTH": str(len(body)), "wsgi.input": BytesIO(body), **(extra or {})})
+        environ.update({"REQUEST_METHOD": method, "PATH_INFO": parsed.path, "QUERY_STRING": parsed.query, "CONTENT_LENGTH": str(len(body)), "wsgi.input": BytesIO(body), **(extra or {})})
         result = {}
         payload = b"".join(app(environ, lambda status, headers: result.update(status=status, headers=dict(headers))))
         return result["status"], result["headers"], payload

@@ -4,6 +4,8 @@
 
 Pushing a semantic version tag such as `v1.2.3` or `v1.3.0-rc.1` starts [the release workflow](../../.github/workflows/release.yml). It runs the supported runtime test matrix, builds the distributable packages, creates SHA-256 checksums, and publishes a GitHub Release with generated release notes. A failed validation or build prevents publication. Prerelease tags (those containing `-`, such as `v1.3.0-rc.1`) create prereleases.
 
+Update every runtime package version and the WordPress plugin version to match the tag, then update the changelog before tagging. The release workflow checks that package metadata matches, so an inconsistent tag cannot publish archives with stale versions.
+
 Create and push a tag after its commit and changelog entry are ready:
 
 ```sh
@@ -11,7 +13,7 @@ git tag -a v1.2.3 -m "Barelytics v1.2.3"
 git push origin v1.2.3
 ```
 
-The release attaches the PHP and WordPress ZIP archives, npm tarball, Python wheel and source archive, .NET NuGet package, Java JAR and POM, Ruby gem, and `SHA256SUMS.txt`. The workflow only creates GitHub Releases; it does not publish to npm, PyPI, NuGet, Maven Central, or RubyGems, and it does not deploy the website. Its release job alone receives `contents: write`; validation and build jobs use read-only repository permissions.
+The release attaches the PHP and WordPress ZIP archives, npm tarball, Python wheel and source archive, .NET NuGet package, Java JAR and POM, Ruby gem, and `SHA256SUMS.txt`. Each artifact includes the shared admin UI where appropriate; release validation checks for the UI and rejects PHP files in native runtime packages plus obvious local secret/database files. The workflow only creates GitHub Releases; it does not publish to npm, PyPI, NuGet, Maven Central, or RubyGems, and it does not deploy the website. Its release job alone receives `contents: write`; validation and build jobs use read-only repository permissions.
 
 Review the completed workflow and the release assets before sharing the release. To verify an asset after downloading it, run `sha256sum -c SHA256SUMS.txt` in the directory containing the files.
 

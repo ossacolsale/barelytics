@@ -15,3 +15,6 @@ dependencies = []
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["barelytics*"]
+
+[tool.setuptools.package-data]
+barelytics = ["admin-ui/*"]

@@ -2,7 +2,7 @@
 
 > First-party analytics that counts pages without following people.
 
-Barelytics is a self-hosted analytics library for small websites and applications. It writes daily page-view aggregates to a local SQLite database. Strict Mode is on by default: Barelytics stores a normalized page path, UTC day, and count; it does not create a visitor identifier.
+Barelytics provides native analytics and administration for PHP, Node.js, Python, .NET, Java, and Ruby, with a standalone PHP mode for FTP/shared-hosting deployments. It writes daily page-view aggregates to local SQLite storage. Strict Mode is on by default: Barelytics stores a normalized page path, UTC day, and count; it does not create a visitor identifier.
 
 ## What it collects
 
@@ -10,15 +10,17 @@ By default, Barelytics stores aggregate page views and normalized paths. It does
 
 ## Runtime support
 
-| Runtime or integration | Supported baseline | Package |
-| --- | --- | --- |
-| PHP | 8.1–8.5, PDO SQLite; FTP/SFTP deployment | [`public/barelytics/`](public/barelytics/) |
-| Node.js / TypeScript | Node 22 and 24 LTS | [`packages/node/`](packages/node/) |
-| Python | 3.11–3.14 | [`packages/python/`](packages/python/) |
-| .NET / ASP.NET Core | .NET 10 LTS; .NET 8 compatibility target | [`packages/dotnet/`](packages/dotnet/) |
-| Java | Java 21 and 25 | [`packages/java/`](packages/java/) |
-| Ruby | Ruby 3.3, 3.4, and 4.0 | [`packages/ruby/`](packages/ruby/) |
-| WordPress | Plugin ZIP assembled from the PHP reference core | [`integrations/wordpress/`](integrations/wordpress/) |
+| Runtime or integration | Supported baseline | Native admin | Host authentication | Standalone mode |
+| --- | --- | --- | --- | --- |
+| PHP | 8.1–8.5, PDO SQLite; FTP/SFTP deployment | Yes | Optional | Yes |
+| Node.js / TypeScript | Node 22 and 24 LTS | Yes | Yes | No |
+| Python | 3.11–3.14 | Yes | Yes | No |
+| .NET / ASP.NET Core | .NET 10 LTS; .NET 8 compatibility target | Yes | Yes | No |
+| Java | Java 21 and 25 | Yes | Yes | No |
+| Ruby | Ruby 3.3, 3.4, and 4.0 | Yes | Yes | No |
+| WordPress | Plugin ZIP assembled from the PHP reference core | Yes | WordPress administrator role | No |
+
+The native runtimes share one dependency-free HTML/CSS/JavaScript administration UI and HTTP contract. Embedded adapters delegate identity, roles, sessions, and CSRF verification to the host application. PHP retains its standalone password/session mode for shared hosting; the WordPress adapter uses WordPress permissions and nonces.
 
 All runtimes use a local SQLite database; non-PHP integrations do not call a remote Barelytics service. Persistent storage is required. SQLite on ephemeral serverless or edge filesystems is not supported.
 

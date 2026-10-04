@@ -14,12 +14,15 @@ export class Barelytics {
   returnToStrictMode(): void;
   setRetention(days: number): void;
   dashboard(periodDays?: number): { total: number; byDay: { day: string; views: number }[]; byPage: { path: string; views: number }[]; retentionDays: number; profile: string };
+  adminData(resource: string, query?: Record<string, string>): Record<string, unknown>;
+  updateAdminSettings(input: Record<string, unknown>): Record<string, unknown>;
+  deleteAll(): void;
   audit(): AuditReport;
   cleanup(limit?: number): boolean;
   close(): void;
 }
 
 export function createTrackHandler(analytics: Barelytics): (request: IncomingMessage, response: ServerResponse) => void;
-export function createAdminHandler(analytics: Barelytics, options: { authorize(request: IncomingMessage): boolean; verifyCsrf(request: IncomingMessage, token: string): boolean }): (request: IncomingMessage, response: ServerResponse) => Promise<void>;
+export function createAdminHandler(analytics: Barelytics, options: { authorize(request: IncomingMessage): boolean | Promise<boolean>; verifyCsrf(request: IncomingMessage, token: string): boolean | Promise<boolean>; csrfToken(request: IncomingMessage): string | Promise<string> }): (request: IncomingMessage, response: ServerResponse) => Promise<void>;
 export function normalizePath(path: string): string | null;
 export function isBot(userAgent: string, extraPatterns?: string[]): boolean;

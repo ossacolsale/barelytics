@@ -31,3 +31,6 @@ Yes, if combined with another integration. Use exactly one method for a page res
 ## How does bot filtering work?
 
 It uses configurable User-Agent substring patterns. It reduces common crawler traffic but cannot reliably identify all automated requests.
+## Does every runtime include an admin dashboard?
+
+Yes. PHP, Node.js, Python, .NET, Java, Ruby, and WordPress have native administration adapters over the shared Barelytics UI. Embedded adapters reuse the host application's authorization and CSRF system; only the FTP/shared-hosting PHP package maintains a standalone Barelytics password and session.

@@ -2,7 +2,7 @@
 
 ## Direct package
 
-Upload the contents of `public/barelytics/` as one directory on the site. The included PHP files, JavaScript, CSS, and server rules are already in runtime form; no build step or package manager is involved. The application runs from a same-origin subdirectory, including nested paths. Its tracker URL and admin session cookie path are derived from the deployed location.
+Upload the contents of `public/barelytics/` as one directory on the site. The included PHP files, JavaScript, CSS, shared admin UI, and server rules are already in runtime form; no build step or package manager is involved. The application runs from a same-origin subdirectory, including nested paths. Its tracker URL and admin session cookie path are derived from the deployed location. Native Node, Python, .NET, Java, Ruby, and WordPress adapters serve the same UI below their configured admin base path and delegate authentication to the host.
 
 The JavaScript asset is `track.js`; it resolves `track.php` beside itself and works on static HTML sites. Server-rendered PHP sites may call `Barelytics\track()` once per response. Choose one method per page. The generic tracker counts the initial page view only on a SPA.
 

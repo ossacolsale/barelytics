@@ -24,6 +24,7 @@ jobs:
             echo "Expected a SemVer tag such as v1.2.3 or v1.2.3-rc.1; got $RELEASE_TAG" >&2
             exit 1
           fi
+          python3 scripts/validate_release_versions.py "$RELEASE_TAG"
 
   php:
     needs: validate
@@ -71,6 +72,7 @@ jobs:
         node: ['22', '24']
     steps:
       - uses: actions/checkout@v7
+      - run: sh scripts/stage-admin-ui.sh
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
@@ -97,6 +99,7 @@ jobs:
         python: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v7
+      - run: sh scripts/stage-admin-ui.sh
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
@@ -119,6 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - run: sh scripts/stage-admin-ui.sh
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
@@ -142,6 +146,7 @@ jobs:
         java: ['21', '25']
     steps:
       - uses: actions/checkout@v7
+      - run: sh scripts/stage-admin-ui.sh
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -175,6 +180,7 @@ jobs:
         ruby: ['3.3', '3.4', '4.0']
     steps:
       - uses: actions/checkout@v7
+      - run: sh scripts/stage-admin-ui.sh
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
@@ -200,11 +206,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
         with:
           pattern: release-*
           path: release-assets
           merge-multiple: true
+      - name: Validate release packages
+        run: python3 scripts/validate_release_assets.py release-assets
       - name: Generate checksums
         run: |
           test -n "$(find release-assets -maxdepth 1 -type f -print -quit)"

@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from ipaddress import ip_address
 from pathlib import Path
-from urllib.parse import unquote_to_bytes, urlsplit
+from urllib.parse import unquote_to_bytes, urlsplit, parse_qs
 import json
 import os
 import re
@@ -212,6 +212,86 @@ class Barelytics:
         config = self._config()
         return {"total": total, "by_day": by_day, "by_page": by_page, "retention_days": config["retention_days"], "profile": config["profile"]}
 
+    def admin_data(self, resource: str, query: dict[str, Any] | None = None) -> dict[str, Any]:
+        query = query or {}
+        config = self._config()
+        accepted_periods = {7, 30, 90, 180, 365}
+        try: requested_period = int(query.get("period", 30))
+        except (TypeError, ValueError): requested_period = 30
+        period = min(requested_period if requested_period in accepted_periods else 30, config["retention_days"])
+        today = datetime.now(timezone.utc).date()
+        start, end = (today - timedelta(days=period - 1)).isoformat(), today.isoformat()
+        bucket = query.get("bucket") if query.get("bucket") in ("day", "week", "month") else "day"
+        group = {"day": "day", "week": "strftime('%Y-W%W',day)", "month": "substr(day,1,7)"}[bucket]
+        try: page = max(1, min(10000, int(query.get("page", 1))))
+        except (TypeError, ValueError): page = 1
+        try: per_page = max(1, min(50, int(query.get("per_page", 50))))
+        except (TypeError, ValueError): per_page = 50
+        offset = (page - 1) * per_page
+        if resource == "privacy": return config
+        if resource == "dashboard":
+            total = self.db.execute("SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE day BETWEEN ? AND ?", (start, end)).fetchone()[0]
+            active = self.db.execute("SELECT COUNT(DISTINCT path) FROM pageviews_daily WHERE day BETWEEN ? AND ?", (start, end)).fetchone()[0]
+            timeline = [dict(x) for x in self.db.execute(f"SELECT {group} AS period,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY period ORDER BY period", (start, end))]
+            top = [dict(x) for x in self.db.execute("SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY path ORDER BY views DESC,path LIMIT 10", (start, end))]
+            return {"total": total, "active_pages": active, "daily_average": round(total / period, 1), "timeline": timeline, "top_pages": top, "period": period, "bucket": bucket}
+        if resource in ("pages", "daily"):
+            select = "path" if resource == "pages" else "day,path"
+            count_query = "SELECT COUNT(*) FROM (SELECT " + select + " FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY " + select + ")"
+            total_rows = self.db.execute(count_query, (start, end)).fetchone()[0]
+            sql = ("SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY path ORDER BY views DESC,path" if resource == "pages" else "SELECT day,path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN ? AND ? GROUP BY day,path ORDER BY day DESC,views DESC,path") + " LIMIT ? OFFSET ?"
+            rows = [dict(x) for x in self.db.execute(sql, (start, end, per_page, offset))]
+            return {"rows": rows, "total_rows": total_rows, "page": page, "per_page": per_page, "pages": (total_rows + per_page - 1) // per_page, "period": period}
+        if resource == "page":
+            path = normalize_path(query.get("path", ""))
+            if path is None: raise ValueError("Invalid page path.")
+            total = self.db.execute("SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ?", (path, start, end)).fetchone()[0]
+            timeline = [dict(x) for x in self.db.execute(f"SELECT {group} AS period,SUM(views) AS views FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ? GROUP BY period ORDER BY period", (path, start, end))]
+            return {"path": path, "total": total, "timeline": timeline, "period": period, "bucket": bucket}
+        if resource == "dimensions":
+            mappings = {"country": ("country_collection", "pageviews_daily", "country"), "referrer": ("referrer_collection", "referrers_daily", "referrer_host"), "browser": ("browser_collection", "dimensions_daily", "value"), "device": ("device_collection", "dimensions_daily", "value"), "os": ("os_collection", "dimensions_daily", "value")}
+            dimension = query.get("dimension", "country")
+            if dimension not in mappings: raise ValueError("Unsupported dimension.")
+            enabled_key, table, column = mappings[dimension]
+            if not config[enabled_key]: return {"dimension": dimension, "label": dimension, "enabled": False, "rows": [], "total_rows": 0, "page": 1, "pages": 1}
+            where, params = ("dimension=? AND day BETWEEN ? AND ?", (dimension, start, end)) if table == "dimensions_daily" else ("day BETWEEN ? AND ?", (start, end))
+            total_rows = self.db.execute(f"SELECT COUNT(*) FROM (SELECT {column} FROM {table} WHERE {where} GROUP BY {column})", params).fetchone()[0]
+            rows = [dict(x) for x in self.db.execute(f"SELECT {column} AS value,SUM(views) AS views FROM {table} WHERE {where} GROUP BY {column} ORDER BY views DESC,value LIMIT ? OFFSET ?", (*params, per_page, offset))]
+            return {"dimension": dimension, "label": dimension, "enabled": True, "rows": rows, "total_rows": total_rows, "page": page, "per_page": per_page, "pages": (total_rows + per_page - 1) // per_page}
+        if resource == "system": return {"application": "Barelytics Python", "runtime": os.sys.version.split()[0], "schema_version": SCHEMA_VERSION, "current_schema_version": SCHEMA_VERSION, "migration_required": False, "capabilities": {"cleanup": True, "delete_all": True, "logout": False}}
+        if resource == "audit": return self.audit()
+        if resource == "integration": return {"instructions": "Mount the WSGI adapter behind the host application's administrator authorization and CSRF middleware.", "javascript_snippet": "from barelytics import Barelytics, create_wsgi_app"}
+        raise ValueError("Unknown administration resource.")
+
+    def update_admin_settings(self, values: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(values, dict): raise ValueError("Invalid settings.")
+        retention = values.get("retention_days")
+        if isinstance(retention, bool) or retention not in _VALID_RETENTION: raise ValueError("Invalid retention period.")
+        def parse_lines(name: str, limit: int, path_mode: bool) -> list[str]:
+            raw = values.get(name, "")
+            if not isinstance(raw, str) or len(raw.encode("utf-8")) > limit: raise ValueError("Invalid settings.")
+            lines = sorted(set(line.strip() for line in raw.splitlines() if line.strip()))
+            if any(len(line) > 200 or (path_mode and (not line.startswith("/") or "?" in line or "#" in line)) for line in lines): raise ValueError("Invalid settings.")
+            return lines
+        exclusions, bots = parse_lines("path_exclusions", 4000, True), parse_lines("bot_patterns", 2000, False)
+        privacy = {key: values.get(key) is True for key in DIMENSIONS}
+        if any(privacy.values()) and values.get("confirmation") != "yes": raise ValueError("Confirm optional dimension collection.")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            for key, enabled in privacy.items(): self._set(key, "1" if enabled else "0")
+            self._set("retention_days", retention); self._set("path_exclusions", "\n".join(exclusions)); self._set("bot_patterns", "\n".join(bots)); self._record_history(); self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK"); raise
+        return self._config()
+
+    def delete_all(self) -> None:
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            for table in ("pageviews_daily", "referrers_daily", "dimensions_daily"): self.db.execute(f"DELETE FROM {table}")
+            self.db.execute("COMMIT")
+        except sqlite3.Error:
+            self.db.execute("ROLLBACK"); raise
+
     def audit(self) -> dict[str, Any]:
         config = self._config()
         fingerprint = sha256(json.dumps({"contract_version": CONTRACT_VERSION, "schema_version": SCHEMA_VERSION, "configuration": config}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -252,7 +332,7 @@ class Barelytics:
         self.db.close()
 
 
-def create_wsgi_app(analytics: Barelytics, *, authorize: Callable[[dict[str, Any]], bool] | None = None, verify_csrf: Callable[[dict[str, Any], str], bool] | None = None):
+def create_wsgi_app(analytics: Barelytics, *, authorize: Callable[[dict[str, Any]], bool] | None = None, verify_csrf: Callable[[dict[str, Any], str], bool] | None = None, csrf_token: Callable[[dict[str, Any]], str] | None = None, admin_path: str = "/barelytics/admin"):
     """Return a dependency-free WSGI collector. Optional admin route requires host auth + CSRF callbacks."""
     def app(environ, start_response):
         method = environ.get("REQUEST_METHOD", "GET").upper()
@@ -270,9 +350,61 @@ def create_wsgi_app(analytics: Barelytics, *, authorize: Callable[[dict[str, Any
                 return _wsgi(start_response, "400 Bad Request", b"")
             analytics.track_page_view(payload["path"], user_agent=environ.get("HTTP_USER_AGENT", ""))
             return _wsgi(start_response, "204 No Content", b"")
-        if route.endswith("/admin"):
-            if authorize is None or verify_csrf is None or not authorize(environ): return _wsgi(start_response, "403 Forbidden", b"")
-            if method == "GET": return _wsgi(start_response, "200 OK", json.dumps({"dashboard": analytics.dashboard(), "audit": analytics.audit()}).encode(), [("Content-Type", "application/json; charset=utf-8"), ("Cache-Control", "no-store")])
+        mount_path = admin_path.rstrip("/") or "/barelytics/admin"
+        script_name = environ.get("SCRIPT_NAME", "").rstrip("/")
+        if route == mount_path or route.startswith(mount_path + "/"):
+            admin_suffix = route[len(mount_path):]
+        elif script_name == mount_path:
+            admin_suffix = route or "/"
+        else:
+            admin_suffix = None
+        if admin_suffix is not None:
+            if authorize is None or verify_csrf is None or csrf_token is None or not authorize(environ): return _wsgi(start_response, "403 Forbidden", b"")
+            suffix = admin_suffix
+            if method == "GET" and suffix in ("", "/", "/index.html"):
+                if suffix == "":
+                    payload = json.dumps({"ok": True, "data": {"dashboard": analytics.dashboard(), "audit": analytics.audit()}, "error": None}).encode()
+                    return _wsgi(start_response, "200 OK", payload, [("Content-Type", "application/json; charset=utf-8"), ("Cache-Control", "no-store")])
+                ui_root = Path(__file__).resolve().parent / "admin-ui"
+                if not ui_root.is_dir(): ui_root = Path(__file__).resolve().parents[3] / "public/barelytics/admin-ui"
+                try: content = (ui_root / "index.html").read_bytes()
+                except OSError: return _wsgi(start_response, "503 Service Unavailable", b"")
+                return _wsgi(start_response, "200 OK", content, [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")])
+            if method == "GET" and suffix.startswith("/admin-ui/"):
+                name = suffix.rsplit("/", 1)[-1]
+                if name not in ("app.js", "admin.css", "config.js"): return _wsgi(start_response, "404 Not Found", b"")
+                ui_root = Path(__file__).resolve().parent / "admin-ui"
+                if not ui_root.is_dir(): ui_root = Path(__file__).resolve().parents[3] / "public/barelytics/admin-ui"
+                try: content = (ui_root / name).read_bytes()
+                except OSError: return _wsgi(start_response, "503 Service Unavailable", b"")
+                if name == "config.js": content = b'window.BARELYTICS_ADMIN_CONFIG = { apiBase: "api/" };'
+                mime = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8"
+                return _wsgi(start_response, "200 OK", content, [("Content-Type", mime), ("Cache-Control", "no-store")])
+            if suffix.startswith("/api/"):
+                resource = suffix[len("/api/"):].strip("/")
+                params = {key: values[-1] for key, values in parse_qs(environ.get("QUERY_STRING", ""), keep_blank_values=True).items()}
+                def respond(status: str, data: Any = None, code: str | None = None, message: str | None = None):
+                    ok = status.startswith("2")
+                    payload = {"ok": ok, "data": data if ok else None, "error": None if ok else {"code": code or "request_failed", "message": message or "The administration request failed."}}
+                    return _wsgi(start_response, status, json.dumps(payload, ensure_ascii=False).encode(), [("Content-Type", "application/json; charset=utf-8"), ("Cache-Control", "no-store")])
+                try:
+                    if method == "GET":
+                        data = {"authenticated": True, "csrf": csrf_token(environ) if csrf_token else "", "retention_days": analytics.admin_data("privacy")["retention_days"], "capabilities": {"logout": False, "delete_all": True}} if resource == "session" else analytics.admin_data(resource, params)
+                        return respond("200 OK", data)
+                    if method != "POST": return respond("405 Method Not Allowed", code="method_not_allowed", message="Method not allowed.")
+                    length = int(environ.get("CONTENT_LENGTH") or "0")
+                    if length > 8192: return respond("413 Payload Too Large", code="too_large", message="Request is too large.")
+                    body = json.loads(environ["wsgi.input"].read(length).decode("utf-8"))
+                    if not isinstance(body, dict) or not verify_csrf(environ, body.get("csrf", "")): return respond("403 Forbidden", code="csrf", message="Request verification failed.")
+                    if resource == "privacy": data = analytics.update_admin_settings(body)
+                    elif resource == "strict": analytics.return_to_strict_mode(); data = analytics._config()
+                    elif resource == "cleanup": data = {"complete": analytics.cleanup()}
+                    elif resource == "delete-all" and body.get("confirmation") == "DELETE": analytics.delete_all(); data = {"deleted": True}
+                    else: return respond("400 Bad Request", code="invalid_action", message="The administration action is not supported.")
+                    return respond("200 OK", data)
+                except (ValueError, TypeError, KeyError, json.JSONDecodeError): return respond("400 Bad Request", code="invalid_request", message="The request is invalid.")
+                except Exception: return respond("500 Internal Server Error", code="internal_error", message="The administration request failed.")
+            if method == "GET": return _wsgi(start_response, "404 Not Found", b"")
             if method != "POST": return _wsgi(start_response, "405 Method Not Allowed", b"", [("Allow", "GET, POST")])
             try:
                 length = int(environ.get("CONTENT_LENGTH") or "0")
@@ -290,7 +422,7 @@ def create_wsgi_app(analytics: Barelytics, *, authorize: Callable[[dict[str, Any
 
 
 def _wsgi(start_response, status: str, body: bytes, headers: list[tuple[str, str]] | None = None):
-    start_response(status, [("Content-Length", str(len(body))), *(headers or [])])
+    start_response(status, [("Content-Length", str(len(body))), ("X-Content-Type-Options", "nosniff"), ("Referrer-Policy", "no-referrer"), ("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"), *(headers or [])])
     return [body]
 
 

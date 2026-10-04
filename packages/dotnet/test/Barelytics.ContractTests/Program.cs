@@ -36,6 +36,8 @@ try
     if (analytics.Audit().Profile != "strict" || analytics.Audit().Result != "PASS") throw new Exception("Default audit failed: " + JsonSerializer.Serialize(analytics.Audit()));
     if (!analytics.TrackPageView("/article") || analytics.TrackPageView("/private/data") || analytics.TrackPageView("/article", "Googlebot")) throw new Exception("Strict collector behavior failed.");
     if (analytics.Dashboard().Total != 1 || analytics.Dashboard().ByPage.Single().Path != "/article") throw new Exception("Aggregate dashboard failed.");
+    if ((long)analytics.AdminData("dashboard", new Dictionary<string, string> { ["period"] = "30", ["bucket"] = "day" })["active_pages"]! != 1) throw new Exception("Admin overview contract failed.");
+    if ((bool)analytics.AdminData("dimensions", new Dictionary<string, string> { ["dimension"] = "country" })["enabled"]!) throw new Exception("Disabled dimension state was not reported.");
     try { analytics.UpdatePrivacy(new Dictionary<string, bool> { ["country_collection"] = true }, false); throw new Exception("Extended mode did not require confirmation."); } catch (InvalidOperationException) { }
     analytics.UpdatePrivacy(new Dictionary<string, bool> { ["country_collection"] = true, ["referrer_collection"] = true, ["browser_collection"] = true, ["device_collection"] = true, ["os_collection"] = true }, true);
     if (analytics.Audit().Profile != "extended") throw new Exception("Extended profile failed.");
@@ -93,17 +95,20 @@ using (var webStore = new BarelyticsStore(new BarelyticsOptions(webData)))
     using var client = app.GetTestClient();
     if ((await client.GetAsync("/barelytics/admin")).StatusCode != System.Net.HttpStatusCode.Unauthorized) throw new Exception("Admin authorization did not reject an anonymous request.");
     client.DefaultRequestHeaders.Add("X-Admin", "yes");
-    if ((await client.GetAsync("/barelytics/admin")).StatusCode != System.Net.HttpStatusCode.OK) throw new Exception("Authorized admin dashboard was inaccessible.");
-    var tokenResponse = await client.GetAsync("/csrf");
-    var requestToken = (await tokenResponse.Content.ReadAsStringAsync()).Trim('"');
+    if ((await client.GetAsync("/barelytics/admin")).StatusCode != System.Net.HttpStatusCode.Redirect) throw new Exception("Admin base path did not redirect to its slash-normalized UI route.");
+    var uiResponse = await client.GetAsync("/barelytics/admin/");
+    if (uiResponse.StatusCode != System.Net.HttpStatusCode.OK || !(await uiResponse.Content.ReadAsStringAsync()).Contains("Analytics administration")) throw new Exception("Shared admin UI was inaccessible.");
+    var tokenResponse = await client.GetAsync("/barelytics/admin/api/session");
+    using var tokenJson = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
+    var requestToken = tokenJson.RootElement.GetProperty("data").GetProperty("csrf").GetString()!;
     var cookie = tokenResponse.Headers.GetValues("Set-Cookie").First().Split(';')[0];
-    var rejected = new HttpRequestMessage(HttpMethod.Post, "/barelytics/admin/privacy") { Content = JsonContent.Create(new Dictionary<string, bool> { ["country_collection"] = true }) };
+    var privacyBody = new Dictionary<string, object> { ["country_collection"] = true, ["retention_days"] = 180, ["path_exclusions"] = string.Join('\n', BarelyticsStore.DefaultExclusions), ["bot_patterns"] = "", ["confirmation"] = "yes" };
+    var rejected = new HttpRequestMessage(HttpMethod.Post, "/barelytics/admin/api/privacy") { Content = JsonContent.Create(privacyBody) };
     rejected.Headers.Add("Cookie", cookie);
-    if ((await client.SendAsync(rejected)).StatusCode != System.Net.HttpStatusCode.BadRequest) throw new Exception("Admin route accepted a missing antiforgery token.");
-    var request = new HttpRequestMessage(HttpMethod.Post, "/barelytics/admin/privacy") { Content = JsonContent.Create(new Dictionary<string, bool> { ["country_collection"] = true }) };
+    if ((await client.SendAsync(rejected)).StatusCode != System.Net.HttpStatusCode.Forbidden) throw new Exception("Admin route accepted a missing antiforgery token.");
+    var request = new HttpRequestMessage(HttpMethod.Post, "/barelytics/admin/api/privacy") { Content = JsonContent.Create(privacyBody) };
     request.Headers.Add("Cookie", cookie);
     request.Headers.Add("RequestVerificationToken", requestToken);
-    request.Headers.Add("X-Barelytics-Extended-Acknowledgement", "yes");
     if ((await client.SendAsync(request)).StatusCode != System.Net.HttpStatusCode.OK || webStore.Audit().Profile != "extended") throw new Exception("Antiforgery-protected opt-in failed.");
 }
 try { Directory.Delete(webData, true); } catch { }

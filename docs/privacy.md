@@ -32,3 +32,6 @@ The application does not read `REMOTE_ADDR`. For country statistics it reads onl
 The User-Agent is used transiently for best-effort bot classification and is not stored. When browser/device/OS categories are enabled, it is parsed in memory and only selected coarse categories are stored. Referrer collection, when enabled, parses and stores only a hostname. Retention defaults to 180 days and can be set to 30, 90, 180, or 365 days.
 
 Whether consent or other notices are legally required depends on applicable ePrivacy rules, national implementation, the site's context, and other technologies in use. Barelytics describes technical behavior and does not certify legal compliance. Hosting infrastructure may separately process IP addresses and request metadata in access, proxy, CDN, or WAF logs; those systems require a separate assessment.
+## Administration interface
+
+The shared administration UI loads only local HTML, CSS, and JavaScript and calls the site's same-origin API. It does not track administrator page views or send usage telemetry. Host application authentication cookies remain in the host application and are not written to analytics aggregates. See the [admin API contract](../spec/admin/http-api.md).

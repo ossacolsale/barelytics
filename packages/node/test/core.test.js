@@ -31,6 +31,9 @@ test('strict is default, aggregates immediately, dimensions require confirmation
     assert.equal(analytics.trackPageView({ path: '/private/report' }), false);
     assert.equal(analytics.trackPageView({ path: '/article', userAgent: 'Googlebot' }), false);
     assert.deepEqual(analytics.dashboard().byPage.map(row => ({ path: row.path, views: row.views })), [{ path: '/article', views: 1 }]);
+    assert.equal(analytics.adminData('dashboard', { period: '30', bucket: 'day' }).active_pages, 1);
+    assert.deepEqual(analytics.adminData('pages', { period: '30', page: '1', per_page: '10' }).rows, [{ path: '/article', views: 1 }]);
+    assert.equal(analytics.adminData('dimensions', { dimension: 'country' }).enabled, false);
     assert.throws(() => analytics.updatePrivacy({ country_collection: true }), /confirmation/i);
     analytics.updatePrivacy({ country_collection: true, referrer_collection: true, browser_collection: true, device_collection: true, os_collection: true }, 'yes');
     analytics.trackPageView({ path: '/extended', userAgent: 'Mozilla/5.0 Chrome/124 Windows', country: 'it', referrer: 'https://example.test/article' });
@@ -83,13 +86,20 @@ test('admin handler enforces host authorization and CSRF before settings changes
   const analytics = new Barelytics({ dataDirectory: directory });
   const server = createServer(createAdminHandler(analytics, {
     authorize: request => request.headers['x-admin'] === 'yes',
-    verifyCsrf: (_request, token) => token === 'valid-token'
+    verifyCsrf: (_request, token) => token === 'valid-token',
+    csrfToken: () => 'valid-token'
   }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     assert.equal((await fetch(base)).status, 403);
     assert.equal((await fetch(base, { headers: { 'x-admin': 'yes' } })).status, 200);
+    const session = await fetch(`${base}/api/session`, { headers: { 'x-admin': 'yes' } });
+    assert.equal((await session.json()).data.csrf, 'valid-token');
+    const dashboard = await fetch(`${base}/api/dashboard`, { headers: { 'x-admin': 'yes' } });
+    assert.equal((await dashboard.json()).data.active_pages, 0);
+    const ui = await fetch(`${base}/` , { headers: { 'x-admin': 'yes' } });
+    assert.match(await ui.text(), /Analytics administration/);
     assert.equal((await fetch(base, { method: 'POST', headers: { 'x-admin': 'yes', 'content-type': 'application/json' }, body: JSON.stringify({ action: 'strict', csrf: 'invalid' }) })).status, 403);
     assert.equal((await fetch(base, { method: 'POST', headers: { 'x-admin': 'yes', 'content-type': 'application/json' }, body: JSON.stringify({ action: 'privacy', values: { country_collection: true }, confirmation: 'yes', csrf: 'valid-token' }) })).status, 204);
     assert.equal(analytics.audit().profile, 'extended');
