@@ -2,7 +2,13 @@
 
 ## Automatic GitHub Releases
 
-Pushing a semantic version tag such as `v1.2.3` or `v1.3.0-rc.1` starts [the release workflow](../../.github/workflows/release.yml). It runs the supported runtime test matrix, builds the distributable packages, creates SHA-256 checksums, and publishes a GitHub Release with generated release notes. A failed validation or build prevents publication. Prerelease tags (those containing `-`, such as `v1.3.0-rc.1`) create prereleases.
+Pushing a semantic version tag such as `v1.2.3` or `v1.3.0-rc.1` starts [the release workflow](../../.github/workflows/release.yml). It validates package versions, runs the supported runtime test matrix, builds the distributable packages, validates the assembled archives, creates SHA-256 checksums, and publishes a GitHub Release with generated release notes. A failed validation or build prevents publication. Prerelease tags (those containing `-`, such as `v1.3.0-rc.1`) create prereleases.
+
+### Rebuild or resume a release from GitHub
+
+To rerun a release after fixing the workflow, first commit and push the workflow fix to the default branch. In GitHub, open **Actions → Release → Run workflow**, select the default branch containing the fix, enter the existing tag (for example `v1.0.0`), then run the workflow. The manual run checks out the current release tooling from the default branch, resolves the requested remote tag, and builds/tests the exact commit to which that tag points. It validates that the tag is SemVer and that package metadata at that commit matches it. The tag is never moved or deleted; no local Git command or replacement tag is needed.
+
+Validation and all runtime builds/tests run before the separate `publish` job. That job alone has `contents: write`. If a release is absent it creates it; if a draft release is incomplete it adds only missing assets whose existing contents still match this build, then publishes the draft. If a published release already has the same assets, the rerun succeeds without changing it. Unexpected, changed, or missing assets on a published/immutable release cause a clear failure instead of being overwritten or deleted. The workflow does not publish to external package registries.
 
 Update every runtime package version and the WordPress plugin version to match the tag, then update the changelog before tagging. The release workflow checks that package metadata matches, so an inconsistent tag cannot publish archives with stale versions.
 
@@ -13,7 +19,7 @@ git tag -a v1.2.3 -m "Barelytics v1.2.3"
 git push origin v1.2.3
 ```
 
-The release attaches the PHP and WordPress ZIP archives, npm tarball, Python wheel and source archive, .NET NuGet package, Java JAR and POM, Ruby gem, and `SHA256SUMS.txt`. Each artifact includes the shared admin UI where appropriate; release validation checks for the UI and rejects PHP files in native runtime packages plus obvious local secret/database files. The workflow only creates GitHub Releases; it does not publish to npm, PyPI, NuGet, Maven Central, or RubyGems, and it does not deploy the website. Its release job alone receives `contents: write`; validation and build jobs use read-only repository permissions.
+The release attaches the PHP and WordPress ZIP archives, npm tarball, Python wheel and source archive, .NET NuGet package, Java JAR and POM, Ruby gem, and `SHA256SUMS.txt`. Each archive includes the shared admin UI; release validation understands ZIP, tar.gz, and RubyGems' outer tar with nested `data.tar.gz`, and rejects PHP files in native runtime packages plus obvious local secret/database files. The workflow only creates GitHub Releases; it does not publish to npm, PyPI, NuGet, Maven Central, or RubyGems, and it does not deploy the website. Its release job alone receives `contents: write`; validation and build jobs use read-only repository permissions.
 
 Review the completed workflow and the release assets before sharing the release. To verify an asset after downloading it, run `sha256sum -c SHA256SUMS.txt` in the directory containing the files.
 

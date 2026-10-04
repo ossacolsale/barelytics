@@ -44,7 +44,7 @@ Run checks for the package you changed; CI runs the full runtime and version mat
 
 ## Releases
 
-Push a version tag such as `v1.2.3` to run the release workflow. After the runtime test matrix passes, it builds the PHP, WordPress, npm, Python, .NET, Java, and Ruby packages and attaches them with SHA-256 checksums to a GitHub Release. See [release instructions](docs/publication/README.md). Package registries are not published automatically.
+Push a version tag such as `v1.2.3` to run the release workflow. After the runtime test matrix passes, it builds the PHP, WordPress, npm, Python, .NET, Java, and Ruby packages and attaches them with SHA-256 checksums to a GitHub Release. To rebuild an existing tag after fixing the workflow, use **Actions → Release → Run workflow** on the default branch and enter the existing tag; the workflow checks out the commit that tag points to and does not move the tag. See [release instructions](docs/publication/README.md). Package registries are not published automatically.
 
 ## License
 

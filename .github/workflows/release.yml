@@ -4,28 +4,55 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable version tag to rebuild and release
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      commit: ${{ steps.resolve.outputs.commit }}
     steps:
+      # Release tooling comes from the current default branch, so a fixed
+      # workflow/validator can rebuild a tag whose own commit predates the fix.
       - uses: actions/checkout@v7
-      - name: Validate version tag
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          path: release-tools
+      - name: Resolve and validate requested tag
+        id: resolve
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
             echo "Expected a SemVer tag such as v1.2.3 or v1.2.3-rc.1; got $RELEASE_TAG" >&2
             exit 1
           fi
-          python3 scripts/validate_release_versions.py "$RELEASE_TAG"
+          git -C release-tools fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          commit=$(git -C release-tools rev-parse --verify "$RELEASE_TAG^{commit}")
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.resolve.outputs.commit }}
+          path: tagged-source
+      - name: Test current release tooling
+        run: python3 -m unittest discover -s release-tools/scripts -p 'test_*.py' -v
+      - name: Validate package versions at tagged commit
+        run: python3 release-tools/scripts/validate_release_versions.py '${{ steps.resolve.outputs.tag }}' tagged-source
 
   php:
     needs: validate
@@ -36,6 +63,8 @@ jobs:
         php: ['8.2', '8.3', '8.4', '8.5']
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -50,7 +79,7 @@ jobs:
       - name: Build installable archives
         if: matrix.php == '8.5'
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
           mkdir -p release-assets
           (cd public && zip -qr "$GITHUB_WORKSPACE/release-assets/barelytics-php-${RELEASE_TAG}.zip" barelytics)
@@ -73,6 +102,8 @@ jobs:
         node: ['22', '24']
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
       - run: sh scripts/stage-admin-ui.sh
       - uses: actions/setup-node@v7
         with:
@@ -100,6 +131,8 @@ jobs:
         python: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
       - run: sh scripts/stage-admin-ui.sh
       - uses: actions/setup-python@v7
         with:
@@ -123,6 +156,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
       - run: sh scripts/stage-admin-ui.sh
       - uses: actions/setup-dotnet@v6
         with:
@@ -147,6 +182,8 @@ jobs:
         java: ['21', '25']
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
       - run: sh scripts/stage-admin-ui.sh
       - uses: actions/setup-java@v6
         with:
@@ -181,6 +218,8 @@ jobs:
         ruby: ['3.3', '3.4', '4.0']
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
       - run: sh scripts/stage-admin-ui.sh
       - uses: ruby/setup-ruby@v1
         with:
@@ -202,32 +241,32 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: [php, node, python, dotnet, java, ruby]
+    needs: [validate, php, node, python, dotnet, java, ruby]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          path: release-tools
       - uses: actions/download-artifact@v7
         with:
           pattern: release-*
           path: release-assets
           merge-multiple: true
       - name: Validate release packages
-        run: python3 scripts/validate_release_assets.py release-assets
+        run: python3 release-tools/scripts/validate_release_assets.py release-assets
       - name: Generate checksums
         run: |
           test -n "$(find release-assets -maxdepth 1 -type f -print -quit)"
           cd release-assets
-          sha256sum * > SHA256SUMS.txt
-      - name: Create GitHub Release
+          LC_ALL=C sha256sum * > SHA256SUMS.txt
+      - name: Create or safely resume GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          release_args=("$RELEASE_TAG" release-assets/* --verify-tag --generate-notes --title "Barelytics $RELEASE_TAG")
-          version_without_build=${RELEASE_TAG%%+*}
-          if [[ "$version_without_build" == *-* ]]; then
-            release_args+=(--prerelease)
-          fi
-          gh release create "${release_args[@]}"
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+        run: bash scripts/publish_github_release.sh "$RELEASE_TAG" "$RELEASE_COMMIT" ../release-assets
+        working-directory: release-tools

@@ -13,6 +13,7 @@ All notable changes to Barelytics are documented here.
 
 ### Added
 
+- Manual, tag-based GitHub Release reruns that rebuild the tag's exact commit, safely resume draft releases, and test release archive validation in CI.
 - FTP/SFTP-deployable PHP + SQLite runtime package with browser environment checks and first-admin setup.
 - One-time hashed bootstrap and recovery token files, permanent setup lock, and browser password recovery.
 - Versioned browser migrations and bounded retention cleanup without a cron requirement.
@@ -30,6 +31,7 @@ All notable changes to Barelytics are documented here.
 - Keep administrator password changes compatible with PDO SQLite transaction handling on PHP 8.2–8.3.
 - Resolve ASP.NET Core admin root and trailing-slash requests through one route to prevent ambiguous endpoint matches.
 - Read RubyGems release archives as their outer tar container when validating bundled admin assets.
+- Diagnose release archive format errors and refuse to overwrite or remove mismatched release assets during a rerun.
 - Drop end-of-life PHP 8.1 and the approaching end-of-support .NET 8 target from supported runtimes.
 
 ### Privacy
