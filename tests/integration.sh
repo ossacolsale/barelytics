@@ -43,7 +43,8 @@ after="$(awk '$6 == "PHPSESSID" {print $7}' "$jar")"
 [[ -n "$after" && "$before" != "$after" ]]
 php -r '$d=new PDO("sqlite:".$argv[1]); $h=$d->query("SELECT value FROM settings WHERE key=\047admin_password_hash\047")->fetchColumn(); if (!is_string($h) || $h === $argv[2] || !password_verify($argv[2], $h)) exit(1);' "$db" "$password"
 
-page="$(curl -sS -b "$jar" "$base/barelytics/admin.php")"
+rm -f "$jar"
+page="$(curl -sS -b "$jar" -c "$jar" "$base/barelytics/admin.php")"
 csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$page")"
 [[ "$(curl -sS -o /dev/null -w '%{http_code}' -b "$jar" -d 'action=settings' "$base/barelytics/admin.php")" == 403 ]]
 wrong="$(curl -sS -b "$jar" -c "$jar" -d "csrf=$csrf&login=1&password=wrong" "$base/barelytics/admin.php")"

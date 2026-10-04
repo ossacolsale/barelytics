@@ -138,10 +138,15 @@ if (!$sqliteAvailable) {
         $unknown = \Barelytics\schemaAudit($db, 'EXTENDED', \Barelytics\effectivePrivacyConfig($db));
         $assert($unknown['status'] === 'PASS', 'aggregate-only extended schema passes audit');
         $assert(\Barelytics\pathIsExcluded('/admin/users', ['/admin/*']), 'wildcard path exclusion matches nested routes');
+        $rowsBeforePreparedUpserts = (int) $db->query('SELECT COUNT(*) FROM pageviews_daily')->fetchColumn();
+        $hostilePath = "/x'); DROP TABLE pageviews_daily;--";
         \Barelytics\recordPageview($db, '/article', 'IT', null);
-        \Barelytics\recordPageview($db, "/x'); DROP TABLE pageviews_daily;--", 'XX', null);
+        \Barelytics\recordPageview($db, $hostilePath, 'XX', null);
         $count = (int) $db->query('SELECT COUNT(*) FROM pageviews_daily')->fetchColumn();
-        $assert($count === 2, 'prepared upsert stores hostile strings as data and retains table');
+        $hostileRow = $db->prepare('SELECT COUNT(*) FROM pageviews_daily WHERE path = :path');
+        $hostileRow->execute([':path' => $hostilePath]);
+        $assert($count === $rowsBeforePreparedUpserts + 2 && (int) $hostileRow->fetchColumn() === 1, 'prepared upsert stores hostile strings as data and retains table');
+        $hostileRow->closeCursor();
         $views = (int) $db->query("SELECT views FROM pageviews_daily WHERE path = '/article'")->fetchColumn();
         $assert($views === 1, 'aggregate counter increments');
         $assert(!str_contains(file_get_contents($tmp . '/analytics.sqlite') ?: '', '192.0.2.1'), 'database does not contain fixture IP');
