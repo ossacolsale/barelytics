@@ -45,8 +45,11 @@ public static class AspNetCoreExtensions
             context.HttpContext.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
             return await next(context);
         });
-        group.MapGet("", (HttpContext context) => Results.Redirect(context.Request.Path.Value!.TrimEnd('/') + "/"));
-        group.MapGet("/", () => UiContent("index.html"));
+        group.MapGet("", (HttpContext context) =>
+        {
+            var path = context.Request.Path.Value ?? pattern;
+            return path.EndsWith('/') ? UiContent("index.html") : Results.Redirect(path + "/");
+        });
         group.MapGet("admin-ui/{asset}", (string asset) => asset is "app.js" or "admin.css" or "config.js" ? UiContent(asset) : Results.NotFound());
         group.MapGet("api/{resource}", (string resource, HttpContext context) =>
         {

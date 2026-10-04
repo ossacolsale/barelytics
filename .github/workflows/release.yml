@@ -16,6 +16,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - name: Validate version tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}

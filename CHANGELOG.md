@@ -28,6 +28,7 @@ All notable changes to Barelytics are documented here.
 ### Fixed
 
 - Keep administrator password changes compatible with PDO SQLite transaction handling on PHP 8.1–8.3.
+- Resolve ASP.NET Core admin root and trailing-slash requests through one route to prevent ambiguous endpoint matches.
 
 ### Privacy
 
