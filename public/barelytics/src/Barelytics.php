@@ -194,7 +194,17 @@ function connectDatabase(): PDO
         PDO::ATTR_EMULATE_PREPARES => false,
     ]);
     $db->exec('PRAGMA busy_timeout = 1000');
-    try { $db->query('PRAGMA journal_mode = WAL')->fetchColumn(); } catch (Throwable) { /* WAL is optional on constrained hosts. */ }
+    $journalMode = null;
+    try {
+        $journalMode = $db->query('PRAGMA journal_mode = WAL');
+        $journalMode->fetchColumn();
+        $journalMode->closeCursor();
+        unset($journalMode);
+    } catch (Throwable) {
+        if ($journalMode instanceof \PDOStatement) { try { $journalMode->closeCursor(); } catch (Throwable) { } }
+        unset($journalMode);
+        /* WAL is optional on constrained hosts. */
+    }
     @chmod($path, 0600);
     return $db;
 }
@@ -203,21 +213,32 @@ function connectDatabase(): PDO
 function databaseWriteCheck(PDO $db): array
 {
     $table = '__barelytics_install_check';
+    $insert = $select = $delete = null;
     try {
         $db->exec('CREATE TABLE IF NOT EXISTS ' . $table . ' (value TEXT NOT NULL)');
         $db->beginTransaction();
         $value = 'write-test-' . bin2hex(random_bytes(8));
         $insert = $db->prepare('INSERT INTO ' . $table . ' (value) VALUES (:value)');
         $insert->execute([':value' => $value]);
+        $insert->closeCursor();
+        unset($insert);
         $select = $db->prepare('SELECT value FROM ' . $table . ' WHERE value = :value LIMIT 1');
         $select->execute([':value' => $value]);
         $ready = $select->fetchColumn() === $value;
+        $select->closeCursor();
+        unset($select);
         $delete = $db->prepare('DELETE FROM ' . $table . ' WHERE value = :value');
         $delete->execute([':value' => $value]);
+        $delete->closeCursor();
+        unset($delete);
         $db->commit();
         $db->exec('DROP TABLE ' . $table);
         return ['ready' => $ready, 'error' => $ready ? null : 'SQLite did not return the written probe value.'];
     } catch (Throwable $error) {
+        foreach ([$insert, $select, $delete] as $statement) {
+            if ($statement instanceof \PDOStatement) { try { $statement->closeCursor(); } catch (Throwable) { } }
+        }
+        unset($statement, $insert, $select, $delete);
         if ($db->inTransaction()) $db->rollBack();
         try { $db->exec('DROP TABLE IF EXISTS ' . $table); } catch (Throwable) { }
         return ['ready' => false, 'error' => diagnosticError($error, [databasePath(), dataDirectory()])];
@@ -227,14 +248,20 @@ function databaseWriteCheck(PDO $db): array
 /** Check WAL sidecars independently so a WAL diagnostic cannot alter the CRUD result. */
 function sqliteWalCheck(PDO $db, string $path): array
 {
+    $statement = null;
     try {
-        $mode = strtolower((string) $db->query('PRAGMA journal_mode')->fetchColumn());
+        $statement = $db->query('PRAGMA journal_mode');
+        $mode = strtolower((string) $statement->fetchColumn());
+        $statement->closeCursor();
+        unset($statement);
         if ($mode !== 'wal') return ['ready' => true, 'mode' => $mode, 'error' => null];
         $wal = $path . '-wal';
         $shm = $path . '-shm';
         $ready = is_file($wal) && is_writable($wal) && is_file($shm) && is_writable($shm);
         return ['ready' => $ready, 'mode' => $mode, 'error' => $ready ? null : 'WAL is active, but its sidecar files are missing or not writable.'];
     } catch (Throwable $error) {
+        if ($statement instanceof \PDOStatement) { try { $statement->closeCursor(); } catch (Throwable) { } }
+        unset($statement);
         return ['ready' => false, 'mode' => 'unavailable', 'error' => diagnosticError($error, [$path, dirname($path)])];
     }
 }
@@ -535,18 +562,29 @@ function webrootStatus(string $directory): array
 function runSelfTest(PDO $db): bool
 {
     $key = '__install_probe_' . bin2hex(random_bytes(8));
+    $insert = $select = $delete = null;
     try {
         $db->beginTransaction();
         $insert = $db->prepare('INSERT INTO settings (key, value) VALUES (:key, :value)');
         $insert->execute([':key' => $key, ':value' => 'ok']);
+        $insert->closeCursor();
+        unset($insert);
         $select = $db->prepare('SELECT value FROM settings WHERE key = :key');
         $select->execute([':key' => $key]);
         $ok = $select->fetchColumn() === 'ok';
+        $select->closeCursor();
+        unset($select);
         $delete = $db->prepare('DELETE FROM settings WHERE key = :key');
         $delete->execute([':key' => $key]);
+        $delete->closeCursor();
+        unset($delete);
         $db->commit();
         return $ok;
     } catch (Throwable) {
+        foreach ([$insert, $select, $delete] as $statement) {
+            if ($statement instanceof \PDOStatement) { try { $statement->closeCursor(); } catch (Throwable) { } }
+        }
+        unset($statement, $insert, $select, $delete);
         if ($db->inTransaction()) $db->rollBack();
         return false;
     }

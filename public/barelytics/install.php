@@ -71,10 +71,16 @@ if ($driverReady && $writable) {
         $databaseError = diagnosticError($failure, [databasePath(), $dataDir]);
     }
     if ($db instanceof PDO) {
+        $versionStatement = null;
         try {
-            $sqliteVersion = (string) $db->query('SELECT sqlite_version()')->fetchColumn();
+            $versionStatement = $db->query('SELECT sqlite_version()');
+            $sqliteVersion = (string) $versionStatement->fetchColumn();
+            $versionStatement->closeCursor();
+            unset($versionStatement);
             $sqliteVersionReady = version_compare($sqliteVersion, '3.24.0', '>=');
         } catch (Throwable $failure) {
+            if ($versionStatement instanceof PDOStatement) { try { $versionStatement->closeCursor(); } catch (Throwable) { } }
+            unset($versionStatement);
             $versionError = diagnosticError($failure, [databasePath(), $dataDir]);
         }
         $crud = databaseWriteCheck($db);

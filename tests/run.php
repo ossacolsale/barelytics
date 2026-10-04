@@ -101,6 +101,7 @@ if (!$sqliteAvailable) {
     putenv('BARELYTICS_DATABASE_PATH=' . $tmp . '/analytics.sqlite');
     try {
         $db = \Barelytics\openDatabase();
+        $assert(\Barelytics\runSelfTest($db), 'installer self-test releases all PDO statements and commits its probe');
         $crudProbe = databaseWriteCheck($db);
         $assert($crudProbe['ready'], 'installer CRUD probe creates, reads, deletes, commits, and drops its database test table');
         $walProbe = sqliteWalCheck($db, databasePath());
