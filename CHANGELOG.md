@@ -20,6 +20,8 @@ All notable changes to Barelytics are documented here.
 - PHP/SQLite/Plesk/Nginx diagnostics, FTP backup/upgrade guides, and manual host acceptance matrix.
 - Dependency-free regression/integration checks and PHP 8.1–8.5 CI matrix.
 - Independent SQLite CRUD and WAL/SHM installer probes with isolated diagnostics and sanitized failure messages.
+- Authenticated read-only database diagnostics with an explicit CRUD/WAL probe, plus administrator password changes from the account page.
+- Statistics-first admin navigation with period filters, day/week/month grouping, page totals, per-day page detail, per-page trends, and optional dimension breakdowns.
 
 ### Privacy
 

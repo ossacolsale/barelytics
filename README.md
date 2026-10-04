@@ -13,7 +13,8 @@ Barelytics is a tiny, first-party analytics package for PHP websites. It uses SQ
 - No stored IP addresses, full User-Agent strings, query strings, or full referrer URLs
 - Daily aggregate page views, optional country codes, optional referrer hostnames
 - Configurable 30–365 day retention with bounded no-cron cleanup
-- Admin dashboard, CSRF protection, PHP password hashing, and secure sessions
+- Admin dashboard with period and page-level aggregate views, CSRF protection, PHP password hashing, and secure sessions
+- Authenticated read-only diagnostics, an explicit database probe, and in-session administrator password changes
 - Framework-independent JavaScript and PHP integration
 - No third-party analytics requests or hidden telemetry
 - Strict Mode by default, with optional aggregate dimensions controlled by the administrator

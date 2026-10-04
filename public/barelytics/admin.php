@@ -209,7 +209,8 @@ if ($authenticated && $currentSchema >= CURRENT_SCHEMA_VERSION) {
 $makeUrl = static function (array $overrides = []) use ($view, $period, $bucket, $selectedPath, $dimension): string {
     return '?' . http_build_query(array_merge(['view' => $view, 'period' => $period, 'bucket' => $bucket, 'path' => $selectedPath, 'dimension' => $dimension], $overrides));
 };
-$timelineMax = max(1, ...array_map(static fn($row) => (int) $row['views'], $timeline));
+$timelineValues = array_map(static fn($row) => (int) $row['views'], $timeline);
+$timelineMax = $timelineValues ? max(1, ...$timelineValues) : 1;
 $resultPages = max(1, (int) ceil($resultCount / $rowsPerPage));
 $metricPageCount = $view === 'page' ? count($timeline) : $activePages;
 $metricAverage = $view === 'page' ? ($period > 0 ? round($pageTotal / $period, 1) : 0) : $dailyAverage;

@@ -12,9 +12,11 @@ find public/barelytics -name '*.php' -print0 | xargs -0 -n1 php -l
 
 Keep PHP readable, use prepared SQL statements, and escape dynamic HTML. Include a regression test for each bug fix when practical.
 
+Follow the repository-wide requirements in [AGENTS.md](AGENTS.md): code changes require relevant regression coverage and the final checks below; review applicable GitHub Actions workflows and update related documentation and `CHANGELOG.md` when behavior changes.
+
 ## Required pre-review checks
 
-Before handing off any code revision, inspect the complete diff and run the same checks used by CI:
+Before handing off every code revision, inspect the complete diff and run the same checks used by CI:
 
 ```sh
 find public/barelytics -name '*.php' -print0 | xargs -0 -n1 php -l
@@ -23,7 +25,7 @@ bash tests/integration.sh
 git diff --check
 ```
 
-Run the database-backed checks with PDO SQLite enabled, as in the CI workflow. If the local environment lacks PDO SQLite, report the skipped checks explicitly and do not treat that run as a full CI verification.
+Run the database-backed checks with PDO SQLite enabled, as in the CI workflow. If the local environment lacks PDO SQLite, make a reasonable attempt to provide it. If it remains unavailable, report the skipped checks explicitly and do not treat that run as a full CI verification.
 
 ## Privacy and security changes
 
