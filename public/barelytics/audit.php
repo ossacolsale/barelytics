@@ -11,6 +11,7 @@ use function Barelytics\effectivePrivacyConfig;
 use function Barelytics\escape;
 use function Barelytics\privacyFingerprint;
 use function Barelytics\privacySelfTest;
+use function Barelytics\queryRows;
 use function Barelytics\schemaAudit;
 use function Barelytics\setting;
 use function Barelytics\startAdminSession;
@@ -39,7 +40,7 @@ if (!$clientStorageFree) $selfTest['result'] = 'FAIL';
 $hash = privacyFingerprint($db);
 $history = [];
 if (tableExists($db, 'privacy_configuration_history')) {
-    $history = $db->query('SELECT timestamp, profile, effective_configuration_json, configuration_hash, application_version, schema_version FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 100')->fetchAll();
+    $history = queryRows($db, 'SELECT timestamp, profile, effective_configuration_json, configuration_hash, application_version, schema_version FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 100');
 }
 $files = [];
 foreach (['track.php', 'src/Barelytics.php', 'track.js'] as $relative) {

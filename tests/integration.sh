@@ -31,6 +31,9 @@ printf '%s' "$digest" > "$tmp/setup.token"
 page="$(curl -sS -c "$jar" "$base/barelytics/install.php")"
 csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$page")"
 [[ -n "$csrf" ]]
+status="$(curl -sS -o "$tmp/diagnostics-anonymous" -w '%{http_code}' "$base/barelytics/diagnostics.php")"
+[[ "$status" == 403 ]]
+! grep -q 'Read-only diagnostics' "$tmp/diagnostics-anonymous"
 
 weak="$(curl -sS -b "$jar" -c "$jar" -d "csrf=$csrf&data_mode=auto&setup_token=$token&password=short&confirmation=short" "$base/barelytics/install.php")"
 grep -q 'at least 12 characters' <<<"$weak"
@@ -41,6 +44,39 @@ curl -sS -o /dev/null -D "$tmp/setup-headers" -b "$jar" -c "$jar" -d "csrf=$csrf
 test ! -f "$tmp/setup.token"
 after="$(awk '$6 == "PHPSESSID" {print $7}' "$jar")"
 [[ -n "$after" && "$before" != "$after" ]]
+
+diagnostics="$(curl -sS -b "$jar" "$base/barelytics/diagnostics.php")"
+grep -q 'Read-only diagnostics' <<<"$diagnostics"
+! grep -q "$tmp" <<<"$diagnostics"
+diag_csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$diagnostics")"
+[[ "$(curl -sS -o /dev/null -w '%{http_code}' -b "$jar" -d 'action=database_probe' "$base/barelytics/diagnostics.php")" == 403 ]]
+probe="$(curl -sS -b "$jar" -c "$jar" -d "csrf=$diag_csrf&action=database_probe" "$base/barelytics/diagnostics.php")"
+grep -q 'CRUD result: PASS' <<<"$probe"
+grep -q 'PASS CREATE TABLE' <<<"$probe"
+grep -q 'PASS DROP TABLE' <<<"$probe"
+! grep -q "$tmp" <<<"$probe"
+
+account="$(curl -sS -b "$jar" "$base/barelytics/account.php")"
+grep -q 'Change password' <<<"$account"
+account_csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$account")"
+wrong_password="$(curl -sS -b "$jar" -d "csrf=$account_csrf&current_password=incorrect&new_password=changed-password-long-456&confirmation=changed-password-long-456" "$base/barelytics/account.php")"
+grep -q 'current password is incorrect' <<<"$wrong_password"
+mismatch_password="$(curl -sS -b "$jar" -d "csrf=$account_csrf&current_password=$password&new_password=changed-password-long-456&confirmation=changed-password-long-457" "$base/barelytics/account.php")"
+grep -q 'confirmation does not match' <<<"$mismatch_password"
+weak_password="$(curl -sS -b "$jar" -d "csrf=$account_csrf&current_password=$password&new_password=short-pass1&confirmation=short-pass1" "$base/barelytics/account.php")"
+grep -q 'at least 12 characters' <<<"$weak_password"
+new_password='changed-password-long-456'
+curl -sS -b "$jar" -c "$jar" -d "csrf=$account_csrf&current_password=$password&new_password=$new_password&confirmation=$new_password" "$base/barelytics/account.php" > "$tmp/account-changed"
+grep -q 'Administrator password changed' "$tmp/account-changed"
+php -r '$d=new PDO("sqlite:".$argv[1]); $v=(int)$d->query("SELECT MAX(version) FROM schema_migrations")->fetchColumn(); $setup=$d->query("SELECT value FROM settings WHERE key=\047setup_complete\047")->fetchColumn(); $app=$d->query("SELECT value FROM settings WHERE key=\047application_version\047")->fetchColumn(); $hash=$d->query("SELECT value FROM settings WHERE key=\047admin_password_hash\047")->fetchColumn(); if ($v !== 2 || $setup !== "1" || $app !== "1.1.0" || !password_verify($argv[2], $hash)) exit(1);' "$db" "$new_password"
+rm -f "$jar"
+page="$(curl -sS -b "$jar" -c "$jar" "$base/barelytics/admin.php")"
+csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$page")"
+old_password="$(curl -sS -b "$jar" -d "csrf=$csrf&login=1&password=$password" "$base/barelytics/admin.php")"
+grep -q 'password is incorrect' <<<"$old_password"
+curl -sS -o /dev/null -D "$tmp/new-login-headers" -b "$jar" -c "$jar" -d "csrf=$csrf&login=1&password=$new_password" "$base/barelytics/admin.php"
+grep -qi '^Location: admin.php' "$tmp/new-login-headers"
+password="$new_password"
 php -r '$d=new PDO("sqlite:".$argv[1]); $h=$d->query("SELECT value FROM settings WHERE key=\047admin_password_hash\047")->fetchColumn(); if (!is_string($h) || $h === $argv[2] || !password_verify($argv[2], $h)) exit(1);' "$db" "$password"
 
 rm -f "$jar"
@@ -92,6 +128,8 @@ php -r '$d=new PDO("sqlite:".$argv[1]); if ((int)$d->query("SELECT COUNT(*) FROM
 locked="$(curl -sS -b "$jar" "$base/barelytics/install.php?reset=1")"
 grep -q 'Setup is locked' <<<"$locked"
 ! grep -q 'Create the administrator account' <<<"$locked"
+! grep -q 'Database write test' <<<"$locked"
+! grep -q 'Environment checks' <<<"$locked"
 recovery_token="$(php -r 'echo bin2hex(random_bytes(32));')"
 recovery_digest="$(php -r 'echo "sha256:", hash("sha256", $argv[1]), "\n";' "$recovery_token")"
 printf '%s' "$recovery_digest" > "$tmp/reset.token"

@@ -83,6 +83,42 @@ function escape(string $value): string
     return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+/** Read one value and release the SQLite cursor before returning. */
+function queryColumn(PDO $db, string $sql, array $params = []): mixed
+{
+    $statement = $db->prepare($sql);
+    try {
+        $statement->execute($params);
+        return $statement->fetchColumn();
+    } finally {
+        $statement->closeCursor();
+    }
+}
+
+/** Read all rows and release the SQLite cursor before returning. */
+function queryRows(PDO $db, string $sql, array $params = [], int $fetchMode = PDO::FETCH_ASSOC): array
+{
+    $statement = $db->prepare($sql);
+    try {
+        $statement->execute($params);
+        return $statement->fetchAll($fetchMode);
+    } finally {
+        $statement->closeCursor();
+    }
+}
+
+/** Execute a statement, capture its affected row count, and release its cursor. */
+function executeStatement(PDO $db, string $sql, array $params = []): int
+{
+    $statement = $db->prepare($sql);
+    try {
+        $statement->execute($params);
+        return $statement->rowCount();
+    } finally {
+        $statement->closeCursor();
+    }
+}
+
 function passwordMeetsMinimum(string $password): bool
 {
     if (!preg_match('//u', $password)) return false;
@@ -92,16 +128,13 @@ function passwordMeetsMinimum(string $password): bool
 
 function setting(PDO $db, string $key, string $default): string
 {
-    $stmt = $db->prepare('SELECT value FROM settings WHERE key = :key');
-    $stmt->execute([':key' => $key]);
-    $value = $stmt->fetchColumn();
+    $value = queryColumn($db, 'SELECT value FROM settings WHERE key = :key', [':key' => $key]);
     return $value === false ? $default : (string) $value;
 }
 
 function setSetting(PDO $db, string $key, string $value): void
 {
-    $stmt = $db->prepare('INSERT INTO settings (key, value) VALUES (:key, :value) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-    $stmt->execute([':key' => $key, ':value' => $value]);
+    executeStatement($db, 'INSERT INTO settings (key, value) VALUES (:key, :value) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [':key' => $key, ':value' => $value]);
 }
 
 function dataDirectory(): string
@@ -181,11 +214,11 @@ function verifyResetToken(string $submitted): bool
     return hash_equals($matches[1], hash('sha256', $submitted));
 }
 
-function connectDatabase(): PDO
+function connectDatabase(bool $configureForWrites = true): PDO
 {
     $path = databasePath();
     $parent = dirname($path);
-    if (!is_dir($parent) && !mkdir($parent, 0700, true) && !is_dir($parent)) {
+    if ($configureForWrites && !is_dir($parent) && !mkdir($parent, 0700, true) && !is_dir($parent)) {
         throw new \RuntimeException('Analytics storage is unavailable.');
     }
     $db = new PDO('sqlite:' . $path, null, null, [
@@ -193,6 +226,7 @@ function connectDatabase(): PDO
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
     ]);
+    if (!$configureForWrites) return $db;
     $db->exec('PRAGMA busy_timeout = 1000');
     $journalMode = null;
     try {
@@ -209,60 +243,96 @@ function connectDatabase(): PDO
     return $db;
 }
 
+/** Open an existing database using SQLite's read-only URI mode. */
+function connectReadOnlyDatabase(): PDO
+{
+    $path = databasePath();
+    if (!is_file($path)) throw new \RuntimeException('Analytics database is unavailable.');
+    $uriPath = str_replace('%2F', '/', rawurlencode($path));
+    return new PDO('sqlite:file:' . $uriPath . '?mode=ro', null, null, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+}
+
 /** Run a real file-backed SQLite write/read/delete/commit/drop probe. */
 function databaseWriteCheck(PDO $db): array
 {
-    $table = '__barelytics_install_check';
+    $table = '__barelytics_probe_' . bin2hex(random_bytes(8));
     $insert = $select = $delete = null;
+    $steps = [];
+    $stage = 'CREATE TABLE';
     try {
-        $db->exec('CREATE TABLE IF NOT EXISTS ' . $table . ' (value TEXT NOT NULL)');
+        $db->exec('CREATE TABLE ' . $table . ' (value TEXT NOT NULL)');
+        $steps[] = ['name' => $stage, 'status' => 'PASS'];
+        $stage = 'BEGIN';
         $db->beginTransaction();
+        $steps[] = ['name' => $stage, 'status' => 'PASS'];
         $value = 'write-test-' . bin2hex(random_bytes(8));
+        $stage = 'INSERT';
         $insert = $db->prepare('INSERT INTO ' . $table . ' (value) VALUES (:value)');
         $insert->execute([':value' => $value]);
         $insert->closeCursor();
         unset($insert);
+        $steps[] = ['name' => $stage, 'status' => 'PASS'];
+        $stage = 'SELECT';
         $select = $db->prepare('SELECT value FROM ' . $table . ' WHERE value = :value LIMIT 1');
         $select->execute([':value' => $value]);
         $ready = $select->fetchColumn() === $value;
         $select->closeCursor();
         unset($select);
+        if (!$ready) throw new \RuntimeException('SQLite did not return the written probe value.');
+        $steps[] = ['name' => $stage, 'status' => 'PASS'];
+        $stage = 'DELETE';
         $delete = $db->prepare('DELETE FROM ' . $table . ' WHERE value = :value');
         $delete->execute([':value' => $value]);
+        $deleted = $delete->rowCount() === 1;
         $delete->closeCursor();
         unset($delete);
+        if (!$deleted) throw new \RuntimeException('SQLite did not delete the probe value.');
+        $steps[] = ['name' => $stage, 'status' => 'PASS'];
+        $stage = 'COMMIT';
         $db->commit();
+        $steps[] = ['name' => $stage, 'status' => 'PASS'];
+        $stage = 'DROP TABLE';
         $db->exec('DROP TABLE ' . $table);
-        return ['ready' => $ready, 'error' => $ready ? null : 'SQLite did not return the written probe value.'];
+        $steps[] = ['name' => $stage, 'status' => 'PASS'];
+        return ['ready' => true, 'error' => null, 'steps' => $steps];
     } catch (Throwable $error) {
         foreach ([$insert, $select, $delete] as $statement) {
             if ($statement instanceof \PDOStatement) { try { $statement->closeCursor(); } catch (Throwable) { } }
         }
         unset($statement, $insert, $select, $delete);
-        if ($db->inTransaction()) $db->rollBack();
-        try { $db->exec('DROP TABLE IF EXISTS ' . $table); } catch (Throwable) { }
-        return ['ready' => false, 'error' => diagnosticError($error, [databasePath(), dataDirectory()])];
+        if ($db->inTransaction()) { try { $db->rollBack(); } catch (Throwable) { } }
+        try {
+            $db->exec('DROP TABLE IF EXISTS ' . $table);
+            $steps[] = ['name' => 'CLEANUP', 'status' => 'PASS'];
+        } catch (Throwable) {
+            $steps[] = ['name' => 'CLEANUP', 'status' => 'FAIL'];
+        }
+        $message = diagnosticError($error, [databasePath(), dataDirectory()]);
+        $steps[] = ['name' => $stage, 'status' => 'FAIL', 'error' => $message];
+        return ['ready' => false, 'error' => $message, 'steps' => $steps];
     }
 }
 
 /** Check WAL sidecars independently so a WAL diagnostic cannot alter the CRUD result. */
 function sqliteWalCheck(PDO $db, string $path): array
 {
-    $statement = null;
     try {
-        $statement = $db->query('PRAGMA journal_mode');
-        $mode = strtolower((string) $statement->fetchColumn());
-        $statement->closeCursor();
-        unset($statement);
-        if ($mode !== 'wal') return ['ready' => true, 'mode' => $mode, 'error' => null];
+        $mode = strtolower((string) queryColumn($db, 'PRAGMA journal_mode'));
+        if ($mode !== 'wal') return ['ready' => true, 'mode' => $mode, 'error' => null, 'wal_exists' => null, 'wal_writable' => null, 'shm_exists' => null, 'shm_writable' => null];
         $wal = $path . '-wal';
         $shm = $path . '-shm';
-        $ready = is_file($wal) && is_writable($wal) && is_file($shm) && is_writable($shm);
-        return ['ready' => $ready, 'mode' => $mode, 'error' => $ready ? null : 'WAL is active, but its sidecar files are missing or not writable.'];
+        $walExists = is_file($wal);
+        $walWritable = $walExists && is_writable($wal);
+        $shmExists = is_file($shm);
+        $shmWritable = $shmExists && is_writable($shm);
+        $ready = $walExists && $walWritable && $shmExists && $shmWritable;
+        return ['ready' => $ready, 'mode' => $mode, 'error' => $ready ? null : 'WAL is active, but its sidecar files are missing or not writable.', 'wal_exists' => $walExists, 'wal_writable' => $walWritable, 'shm_exists' => $shmExists, 'shm_writable' => $shmWritable];
     } catch (Throwable $error) {
-        if ($statement instanceof \PDOStatement) { try { $statement->closeCursor(); } catch (Throwable) { } }
-        unset($statement);
-        return ['ready' => false, 'mode' => 'unavailable', 'error' => diagnosticError($error, [$path, dirname($path)])];
+        return ['ready' => false, 'mode' => 'unavailable', 'error' => diagnosticError($error, [$path, dirname($path)]), 'wal_exists' => null, 'wal_writable' => null, 'shm_exists' => null, 'shm_writable' => null];
     }
 }
 
@@ -287,13 +357,9 @@ function migrateDatabase(PDO $db): int
             $db->exec('CREATE TABLE IF NOT EXISTS referrers_daily (day TEXT NOT NULL, path TEXT NOT NULL, referrer_host TEXT NOT NULL, views INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, path, referrer_host))');
             $db->exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
             $probeKey = '__migration_probe_' . bin2hex(random_bytes(8));
-            $insert = $db->prepare('INSERT INTO settings (key, value) VALUES (:key, :value)');
-            $insert->execute([':key' => $probeKey, ':value' => 'ok']);
-            $select = $db->prepare('SELECT value FROM settings WHERE key = :key');
-            $select->execute([':key' => $probeKey]);
-            $valid = $select->fetchColumn() === 'ok';
-            $delete = $db->prepare('DELETE FROM settings WHERE key = :key');
-            $delete->execute([':key' => $probeKey]);
+            executeStatement($db, 'INSERT INTO settings (key, value) VALUES (:key, :value)', [':key' => $probeKey, ':value' => 'ok']);
+            $valid = queryColumn($db, 'SELECT value FROM settings WHERE key = :key', [':key' => $probeKey]) === 'ok';
+            executeStatement($db, 'DELETE FROM settings WHERE key = :key', [':key' => $probeKey]);
             if (!$valid || !tableExists($db, 'pageviews_daily') || !tableExists($db, 'referrers_daily') || !tableExists($db, 'settings')) {
                 throw new \RuntimeException('Migration verification failed.');
             }
@@ -312,17 +378,14 @@ function migrateDatabase(PDO $db): int
             setSetting($db, 'last_migration_at', gmdate('Y-m-d H:i:s'));
         },
     ];
-    $stmt = $db->query('SELECT COALESCE(MAX(version), 0) FROM schema_migrations');
-    $applied = (int) $stmt->fetchColumn();
+    $applied = (int) queryColumn($db, 'SELECT COALESCE(MAX(version), 0) FROM schema_migrations');
     foreach ($migrations as $version => $migration) {
         if ($version <= $applied) continue;
         $db->exec('BEGIN IMMEDIATE');
         try {
-            $stmt = $db->query('SELECT COALESCE(MAX(version), 0) FROM schema_migrations');
-            if ((int) $stmt->fetchColumn() < $version) {
+            if ((int) queryColumn($db, 'SELECT COALESCE(MAX(version), 0) FROM schema_migrations') < $version) {
                 $migration($db);
-                $stmt = $db->prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (:version, :applied_at)');
-                $stmt->execute([':version' => $version, ':applied_at' => gmdate('Y-m-d H:i:s')]);
+                executeStatement($db, 'INSERT INTO schema_migrations (version, applied_at) VALUES (:version, :applied_at)', [':version' => $version, ':applied_at' => gmdate('Y-m-d H:i:s')]);
             }
             $db->exec('COMMIT');
         } catch (Throwable $error) {
@@ -345,15 +408,13 @@ function openDatabase(): PDO
 
 function tableExists(PDO $db, string $table): bool
 {
-    $stmt = $db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name");
-    $stmt->execute([':name' => $table]);
-    return $stmt->fetchColumn() !== false;
+    return queryColumn($db, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name", [':name' => $table]) !== false;
 }
 
 function schemaVersion(PDO $db): int
 {
     if (!tableExists($db, 'schema_migrations')) return 0;
-    return (int) $db->query('SELECT COALESCE(MAX(version), 0) FROM schema_migrations')->fetchColumn();
+    return (int) queryColumn($db, 'SELECT COALESCE(MAX(version), 0) FROM schema_migrations');
 }
 
 /** Canonical effective configuration shared by tracking, administration and audit. Invalid values fail closed. */
@@ -401,11 +462,9 @@ function recordPrivacyConfiguration(PDO $db): void
     $config = effectivePrivacyConfig($db);
     $json = json_encode($config, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     $hash = privacyFingerprint($db);
-    $stmt = $db->prepare('SELECT configuration_hash FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 1');
-    $stmt->execute();
-    if ($stmt->fetchColumn() === $hash) return;
-    $stmt = $db->prepare('INSERT INTO privacy_configuration_history (timestamp, profile, effective_configuration_json, configuration_hash, application_version, schema_version) VALUES (:timestamp, :profile, :json, :hash, :version, :schema)');
-    $stmt->execute([':timestamp' => gmdate('Y-m-d\TH:i:s\Z'), ':profile' => strtoupper($config['profile']), ':json' => $json,
+    if (queryColumn($db, 'SELECT configuration_hash FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 1') === $hash) return;
+    executeStatement($db, 'INSERT INTO privacy_configuration_history (timestamp, profile, effective_configuration_json, configuration_hash, application_version, schema_version) VALUES (:timestamp, :profile, :json, :hash, :version, :schema)', [
+        ':timestamp' => gmdate('Y-m-d\TH:i:s\Z'), ':profile' => strtoupper($config['profile']), ':json' => $json,
         ':hash' => $hash, ':version' => APPLICATION_VERSION, ':schema' => schemaVersion($db)]);
 }
 
@@ -434,7 +493,7 @@ function schemaAudit(PDO $db, string $profile, ?array $config = null): array
             if ($required) $unexpected[] = 'missing table ' . $table;
             continue;
         }
-        $columns = $db->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+        $columns = queryRows($db, 'PRAGMA table_info(' . $table . ')');
         $tableColumns[$table] = array_map(static fn($column) => strtolower((string) $column['name']), $columns);
         $required = $table === 'dimensions_daily' ? ['day','path','dimension','value','views']
             : ($table === 'referrers_daily' ? ['day','path','referrer_host','views'] : ['day','path','country','views']);
@@ -446,30 +505,27 @@ function schemaAudit(PDO $db, string $profile, ?array $config = null): array
             if (!$valid) $unexpected[] = $table . '.' . $name;
         }
     }
-    $allTables = $db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")->fetchAll(PDO::FETCH_COLUMN);
+    $allTables = queryRows($db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'", [], PDO::FETCH_COLUMN);
     foreach ($allTables as $table) {
         if (in_array($table, ['pageviews_daily','referrers_daily','dimensions_daily','privacy_configuration_history','settings','schema_migrations','maintenance_state','schema_version'], true)) continue;
         $unexpected[] = 'unrecognized table ' . (string) $table;
         $quotedTable = '"' . str_replace('"', '""', (string) $table) . '"';
-        $columns = $db->query('PRAGMA table_info(' . $quotedTable . ')')->fetchAll();
+        $columns = queryRows($db, 'PRAGMA table_info(' . $quotedTable . ')');
         foreach ($columns as $column) {
             $name = strtolower((string) $column['name']);
             if (preg_match('/(^|_)(ip|ip_address|visitor_id|user_id|session_id|cookie_id|fingerprint|user_agent|screen_width|screen_height)(_|$)/', $name)) $unexpected[] = $table . '.' . $name;
         }
     }
-    if (isset($tableColumns['pageviews_daily']) && in_array('country', $tableColumns['pageviews_daily'], true) && empty($config['country_collection']) && (int) $db->query("SELECT COUNT(*) FROM pageviews_daily WHERE country <> 'XX'")->fetchColumn() > 0) $unexpected[] = 'country aggregate data exists while country collection is disabled';
-    if (tableExists($db, 'referrers_daily') && empty($config['referrer_collection']) && (int) $db->query('SELECT COUNT(*) FROM referrers_daily')->fetchColumn() > 0) $unexpected[] = 'referrer aggregate data exists while referrer collection is disabled';
+    if (isset($tableColumns['pageviews_daily']) && in_array('country', $tableColumns['pageviews_daily'], true) && empty($config['country_collection']) && (int) queryColumn($db, "SELECT COUNT(*) FROM pageviews_daily WHERE country <> 'XX'") > 0) $unexpected[] = 'country aggregate data exists while country collection is disabled';
+    if (tableExists($db, 'referrers_daily') && empty($config['referrer_collection']) && (int) queryColumn($db, 'SELECT COUNT(*) FROM referrers_daily') > 0) $unexpected[] = 'referrer aggregate data exists while referrer collection is disabled';
     if (isset($tableColumns['dimensions_daily']) && in_array('dimension', $tableColumns['dimensions_daily'], true)) {
         foreach (['browser_collection' => 'browser', 'device_collection' => 'device', 'os_collection' => 'os'] as $flag => $dimension) {
-            $stmt = $db->prepare('SELECT COUNT(*) FROM dimensions_daily WHERE dimension = :dimension');
-            $stmt->execute([':dimension' => $dimension]);
-            if (empty($config[$flag]) && (int) $stmt->fetchColumn() > 0) $unexpected[] = $dimension . ' aggregate data exists while collection is disabled';
+            if (empty($config[$flag]) && (int) queryColumn($db, 'SELECT COUNT(*) FROM dimensions_daily WHERE dimension = :dimension', [':dimension' => $dimension]) > 0) $unexpected[] = $dimension . ' aggregate data exists while collection is disabled';
         }
-        $stmt = $db->query("SELECT COUNT(*) FROM dimensions_daily WHERE dimension NOT IN ('browser','device','os')");
-        if ((int) $stmt->fetchColumn() > 0) $unexpected[] = 'unsupported dimension data exists';
+        if ((int) queryColumn($db, "SELECT COUNT(*) FROM dimensions_daily WHERE dimension NOT IN ('browser','device','os')") > 0) $unexpected[] = 'unsupported dimension data exists';
     }
     if (tableExists($db, 'privacy_configuration_history')) {
-        $columns = $db->query('PRAGMA table_info(privacy_configuration_history)')->fetchAll();
+        $columns = queryRows($db, 'PRAGMA table_info(privacy_configuration_history)');
         foreach ($columns as $column) if (!in_array(strtolower((string) $column['name']), ['timestamp','profile','effective_configuration_json','configuration_hash','application_version','schema_version'], true)) $unexpected[] = 'privacy_configuration_history.' . $column['name'];
     } else $unexpected[] = 'missing table privacy_configuration_history';
     return ['status' => $unexpected ? 'FAIL' : 'PASS', 'tables' => $tables, 'unexpected' => $unexpected];
@@ -599,23 +655,11 @@ function cleanRetentionBatch(PDO $db, ?int $retention = null, int $limit = 1000)
     $cutoff = gmdate('Y-m-d', time() - $retention * 86400);
     $db->beginTransaction();
     try {
-        $stmt = $db->prepare('DELETE FROM pageviews_daily WHERE rowid IN (SELECT rowid FROM pageviews_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)');
-        $stmt->bindValue(':cutoff', $cutoff, PDO::PARAM_STR);
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-        $pageCount = $stmt->rowCount();
-        $stmt = $db->prepare('DELETE FROM referrers_daily WHERE rowid IN (SELECT rowid FROM referrers_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)');
-        $stmt->bindValue(':cutoff', $cutoff, PDO::PARAM_STR);
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-        $referrerCount = $stmt->rowCount();
+        $pageCount = executeStatement($db, 'DELETE FROM pageviews_daily WHERE rowid IN (SELECT rowid FROM pageviews_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]);
+        $referrerCount = executeStatement($db, 'DELETE FROM referrers_daily WHERE rowid IN (SELECT rowid FROM referrers_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]);
         $dimensionCount = 0;
         if (tableExists($db, 'dimensions_daily')) {
-            $stmt = $db->prepare('DELETE FROM dimensions_daily WHERE rowid IN (SELECT rowid FROM dimensions_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)');
-            $stmt->bindValue(':cutoff', $cutoff, PDO::PARAM_STR);
-            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-            $stmt->execute();
-            $dimensionCount = $stmt->rowCount();
+            $dimensionCount = executeStatement($db, 'DELETE FROM dimensions_daily WHERE rowid IN (SELECT rowid FROM dimensions_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]);
         }
         $complete = $pageCount < $limit && $referrerCount < $limit && $dimensionCount < $limit;
         setSetting($db, 'last_cleanup_at', gmdate('Y-m-d H:i:s'));
@@ -649,16 +693,13 @@ function recordPageview(PDO $db, string $path, string $country = 'XX', ?string $
 {
     $db->beginTransaction();
     try {
-        $stmt = $db->prepare('INSERT INTO pageviews_daily (day, path, country, views) VALUES (:day, :path, :country, 1) ON CONFLICT(day, path, country) DO UPDATE SET views = views + 1');
-        $stmt->execute([':day' => gmdate('Y-m-d'), ':path' => $path, ':country' => $country]);
+        executeStatement($db, 'INSERT INTO pageviews_daily (day, path, country, views) VALUES (:day, :path, :country, 1) ON CONFLICT(day, path, country) DO UPDATE SET views = views + 1', [':day' => gmdate('Y-m-d'), ':path' => $path, ':country' => $country]);
         if ($host !== null) {
-            $stmt = $db->prepare('INSERT INTO referrers_daily (day, path, referrer_host, views) VALUES (:day, :path, :host, 1) ON CONFLICT(day, path, referrer_host) DO UPDATE SET views = views + 1');
-            $stmt->execute([':day' => gmdate('Y-m-d'), ':path' => $path, ':host' => $host]);
+            executeStatement($db, 'INSERT INTO referrers_daily (day, path, referrer_host, views) VALUES (:day, :path, :host, 1) ON CONFLICT(day, path, referrer_host) DO UPDATE SET views = views + 1', [':day' => gmdate('Y-m-d'), ':path' => $path, ':host' => $host]);
         }
         foreach ($dimensions as $dimension => $value) {
             if (in_array($dimension, ['browser', 'device', 'os'], true) && is_string($value) && $value !== '') {
-                $stmt = $db->prepare('INSERT INTO dimensions_daily (day, path, dimension, value, views) VALUES (:day, :path, :dimension, :value, 1) ON CONFLICT(day, path, dimension, value) DO UPDATE SET views = views + 1');
-                $stmt->execute([':day' => gmdate('Y-m-d'), ':path' => $path, ':dimension' => $dimension, ':value' => $value]);
+                executeStatement($db, 'INSERT INTO dimensions_daily (day, path, dimension, value, views) VALUES (:day, :path, :dimension, :value, 1) ON CONFLICT(day, path, dimension, value) DO UPDATE SET views = views + 1', [':day' => gmdate('Y-m-d'), ':path' => $path, ':dimension' => $dimension, ':value' => $value]);
             }
         }
         $db->commit();

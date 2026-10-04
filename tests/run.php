@@ -11,6 +11,7 @@ use function Barelytics\referrerHost;
 use function Barelytics\requestCountry;
 use function Barelytics\databasePath;
 use function Barelytics\databaseWriteCheck;
+use function Barelytics\queryColumn;
 use function Barelytics\sqliteWalCheck;
 use function Barelytics\runtimePrivacyChecks;
 
@@ -104,6 +105,7 @@ if (!$sqliteAvailable) {
         $assert(\Barelytics\runSelfTest($db), 'installer self-test releases all PDO statements and commits its probe');
         $crudProbe = databaseWriteCheck($db);
         $assert($crudProbe['ready'], 'installer CRUD probe creates, reads, deletes, commits, and drops its database test table');
+        $assert(array_column($crudProbe['steps'], 'name') === ['CREATE TABLE', 'BEGIN', 'INSERT', 'SELECT', 'DELETE', 'COMMIT', 'DROP TABLE'], 'database probe reports each operation separately');
         $walProbe = sqliteWalCheck($db, databasePath());
         $assert($walProbe['ready'], 'installer WAL check passes when WAL sidecars are available or SQLite uses its fallback mode');
         if ($walProbe['mode'] === 'wal') $assert(is_file(databasePath() . '-wal') && is_file(databasePath() . '-shm'), 'WAL probe verifies both SQLite sidecar files');
@@ -111,6 +113,19 @@ if (!$sqliteAvailable) {
         $assert(!$failedWalProbe['ready'] && $crudProbe['ready'], 'a WAL diagnostic failure does not change the independent successful CRUD result');
         $assert(\Barelytics\schemaVersion($db) === \Barelytics\CURRENT_SCHEMA_VERSION, 'fresh database receives the current schema migration');
         $assert(\Barelytics\migrateDatabase($db) === \Barelytics\CURRENT_SCHEMA_VERSION, 'schema migration is safe to repeat');
+        \Barelytics\setSetting($db, 'setup_complete', '1');
+        \Barelytics\setSetting($db, 'admin_password_hash', password_hash('existing-admin-password', PASSWORD_DEFAULT));
+        $assert(\Barelytics\tableExists($db, 'settings') && \Barelytics\setting($db, 'setup_complete', '0') === '1' && \Barelytics\schemaVersion($db) === 2, 'schema-2 database helpers close cursors before follow-up operations');
+        $existingHash = \Barelytics\setting($db, 'admin_password_hash', '');
+        $existingViews = (int) \Barelytics\queryColumn($db, 'SELECT COALESCE(SUM(views), 0) FROM pageviews_daily');
+        $existingProbe = databaseWriteCheck($db);
+        $assert($existingProbe['ready'] && \Barelytics\schemaVersion($db) === 2, 'existing schema-2 database passes CRUD probe without migration');
+        $assert(\Barelytics\setting($db, 'setup_complete', '0') === '1' && \Barelytics\setting($db, 'admin_password_hash', '') === $existingHash && (int) \Barelytics\queryColumn($db, 'SELECT COALESCE(SUM(views), 0) FROM pageviews_daily') === $existingViews, 'diagnostic probe preserves setup, admin hash, and analytics aggregates');
+        $readOnlyDb = \Barelytics\connectReadOnlyDatabase();
+        $readOnlyWriteBlocked = false;
+        try { $readOnlyDb->exec('CREATE TABLE read_only_guard (value TEXT)'); } catch (PDOException) { $readOnlyWriteBlocked = true; }
+        $assert($readOnlyWriteBlocked, 'read-only diagnostics connection cannot modify the database');
+        unset($readOnlyDb);
         $privacy = \Barelytics\effectivePrivacyConfig($db);
         $assert($privacy['profile'] === 'strict' && !$privacy['country_collection'] && !$privacy['referrer_collection'] && !$privacy['browser_collection'] && !$privacy['device_collection'] && !$privacy['os_collection'], 'fresh installs use Strict Mode with every optional dimension disabled');
         $assert(\Barelytics\privacySelfTest($db)['result'] === 'PASS', 'fresh strict profile passes the runtime privacy self-test');

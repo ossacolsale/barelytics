@@ -13,6 +13,7 @@ require_once __DIR__ . '/src/Barelytics.php';
 
 use function Barelytics\adminHeaders;
 use function Barelytics\connectDatabase;
+use function Barelytics\connectReadOnlyDatabase;
 use function Barelytics\csrfToken;
 use function Barelytics\databasePath;
 use function Barelytics\databaseWriteCheck;
@@ -22,6 +23,7 @@ use function Barelytics\escape;
 use function Barelytics\isHttpsRequest;
 use function Barelytics\migrateDatabase;
 use function Barelytics\openDatabase;
+use function Barelytics\queryColumn;
 use function Barelytics\passwordMeetsMinimum;
 use function Barelytics\requestBasePath;
 use function Barelytics\resetTokenPath;
@@ -51,9 +53,10 @@ $dataMode = (string) ($_POST['data_mode'] ?? ($_GET['data_mode'] ?? (getenv('BAR
 if (!in_array($dataMode, ['auto', 'private', 'apache'], true)) $dataMode = 'auto';
 putenv('BARELYTICS_DATA_MODE=' . $dataMode);
 $dataDir = dataDirectory();
-if (!is_dir($dataDir)) @mkdir($dataDir, 0750, true);
+$installed = false;
+$currentSchema = 0;
 $writable = is_dir($dataDir) && is_writable($dataDir);
-$protection = $writable ? webrootStatus($dataDir) : ['inside' => false, 'secure' => false, 'mode' => 'not-writable'];
+$protection = ['inside' => false, 'secure' => false, 'mode' => 'not-checked'];
 $dbReady = false;
 $driverReady = class_exists(PDO::class) && in_array('sqlite', PDO::getAvailableDrivers(), true);
 $sqliteVersion = 'unavailable';
@@ -64,34 +67,48 @@ $databaseError = null;
 $walError = null;
 $versionError = null;
 $db = null;
-if ($driverReady && $writable) {
+// Find a completed install without running the write probe or changing WAL on an anonymous request.
+if ($driverReady && is_file(databasePath())) {
+    // Fail closed if an existing database cannot be inspected; never fall back to a new-install flow.
+    $installed = true;
     try {
-        $db = connectDatabase();
+        $db = connectReadOnlyDatabase();
+        if (\Barelytics\tableExists($db, 'settings')) {
+            $installed = \Barelytics\setting($db, 'setup_complete', '0') === '1';
+            $currentSchema = \Barelytics\schemaVersion($db);
+        } else $installed = false;
     } catch (Throwable $failure) {
-        $databaseError = diagnosticError($failure, [databasePath(), $dataDir]);
+        $db = null;
     }
-    if ($db instanceof PDO) {
-        $versionStatement = null;
+}
+$driverReady = class_exists(PDO::class) && in_array('sqlite', PDO::getAvailableDrivers(), true);
+if (!$installed) {
+    if (!is_dir($dataDir)) @mkdir($dataDir, 0750, true);
+    $writable = is_dir($dataDir) && is_writable($dataDir);
+    $protection = $writable ? webrootStatus($dataDir) : ['inside' => false, 'secure' => false, 'mode' => 'not-writable'];
+    if ($driverReady && $writable) {
         try {
-            $versionStatement = $db->query('SELECT sqlite_version()');
-            $sqliteVersion = (string) $versionStatement->fetchColumn();
-            $versionStatement->closeCursor();
-            unset($versionStatement);
-            $sqliteVersionReady = version_compare($sqliteVersion, '3.24.0', '>=');
+            $db = connectDatabase();
         } catch (Throwable $failure) {
-            if ($versionStatement instanceof PDOStatement) { try { $versionStatement->closeCursor(); } catch (Throwable) { } }
-            unset($versionStatement);
-            $versionError = diagnosticError($failure, [databasePath(), $dataDir]);
+            $databaseError = diagnosticError($failure, [databasePath(), $dataDir]);
         }
-        $crud = databaseWriteCheck($db);
-        $dbReady = $crud['ready'];
-        if (!$dbReady) $databaseError = $crud['error'];
-        $wal = sqliteWalCheck($db, databasePath());
-        $walMode = $wal['mode'];
-        $walReady = $wal['ready'];
-        $walError = $wal['error'];
-    } else {
-        $walError = 'SQLite sidecars could not be checked because the database connection is unavailable.';
+        if ($db instanceof PDO) {
+            try {
+                $sqliteVersion = (string) queryColumn($db, 'SELECT sqlite_version()');
+                $sqliteVersionReady = version_compare($sqliteVersion, '3.24.0', '>=');
+            } catch (Throwable $failure) {
+                $versionError = diagnosticError($failure, [databasePath(), $dataDir]);
+            }
+            $crud = databaseWriteCheck($db);
+            $dbReady = $crud['ready'];
+            if (!$dbReady) $databaseError = $crud['error'];
+            $wal = sqliteWalCheck($db, databasePath());
+            $walMode = $wal['mode'];
+            $walReady = $wal['ready'];
+            $walError = $wal['error'];
+        } else {
+            $walError = 'SQLite sidecars could not be checked because the database connection is unavailable.';
+        }
     }
 }
 $sessionReady = function_exists('session_start') && function_exists('session_set_cookie_params');
@@ -105,13 +122,7 @@ $https = isHttpsRequest();
 $token = setupToken();
 $setupFilePresent = is_file(setupTokenPath());
 $resetFilePresent = is_file(resetTokenPath()) && \Barelytics\readTokenHashFile(resetTokenPath()) !== null;
-$permissionMode = $writable ? substr(sprintf('%o', fileperms($dataDir)), -4) : 'unavailable';
-$installed = false;
-$currentSchema = 0;
-if ($db instanceof PDO && \Barelytics\tableExists($db, 'settings')) {
-    $installed = \Barelytics\setting($db, 'setup_complete', '0') === '1';
-    $currentSchema = \Barelytics\schemaVersion($db);
-}
+$permissionMode = $writable && is_dir($dataDir) ? substr(sprintf('%o', fileperms($dataDir)), -4) : 'unavailable';
 $checks = [
     ['PHP version', PHP_VERSION_ID >= SUPPORTED_PHP_MIN && PHP_VERSION_ID <= SUPPORTED_PHP_MAX, 'Supported range is PHP 8.1 through 8.5. Detected ' . PHP_VERSION . '.'],
     ['PDO', class_exists(PDO::class), 'PDO must be enabled by the hosting provider.'],
@@ -123,8 +134,11 @@ $checks = [
     ['Admin sessions', $sessionReady, 'PHP sessions must be enabled and writable by the hosting provider.'],
     ['Data protection', $protection['secure'], $protection['mode'] === 'webroot-unverified' ? 'The data directory is under the webroot and this server does not confirm Apache access controls. Choose storage outside the webroot.' : 'Use data storage outside the webroot, or Apache with an effective Require all denied rule. Nginx-only in-webroot storage is refused.'],
 ];
-$canSetup = true;
-foreach ($checks as $check) if (!$check[1]) $canSetup = false;
+$canSetup = $installed;
+if (!$installed) {
+    $canSetup = true;
+    foreach ($checks as $check) if (!$check[1]) $canSetup = false;
+}
 $httpsWarning = !$https;
 
 if ($method === 'POST') {
@@ -142,6 +156,8 @@ if ($method === 'POST') {
             $error = 'The password confirmation does not match.';
         } else {
             try {
+                // A reset-token POST is the only installed-flow write; the GET detection connection is read-only.
+                $db = connectDatabase(false);
                 $algorithm = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
                 $db->exec('BEGIN IMMEDIATE');
                 if (\Barelytics\setting($db, 'setup_complete', '0') !== '1') throw new RuntimeException('Installation state changed.');
