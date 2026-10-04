@@ -7,6 +7,7 @@ This checklist is for a real hosting account. It is not a substitute for CI, and
 - [ ] Upload the contents of `public/barelytics/` using FTP/SFTP only.
 - [ ] Do not use SSH, a shell, Composer, npm, or cron.
 - [ ] Open the install URL and inspect every environment check.
+- [ ] Confirm the database CRUD and WAL/SHM checks run independently; a sidecar-check failure must not change the CRUD result.
 - [ ] Confirm SQLite/PDO SQLite is reported clearly when enabled and gives the hosting-control-panel action when disabled.
 - [ ] Create the token with the included local hash helper and upload `setup-token.php` into the package `data/` folder.
 - [ ] Complete admin setup in the browser; confirm the bootstrap file is removed or remains unusable behind the setup lock.

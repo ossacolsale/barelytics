@@ -199,6 +199,57 @@ function connectDatabase(): PDO
     return $db;
 }
 
+/** Run a real file-backed SQLite write/read/delete/commit/drop probe. */
+function databaseWriteCheck(PDO $db): array
+{
+    $table = '__barelytics_install_check';
+    try {
+        $db->exec('CREATE TABLE IF NOT EXISTS ' . $table . ' (value TEXT NOT NULL)');
+        $db->beginTransaction();
+        $value = 'write-test-' . bin2hex(random_bytes(8));
+        $insert = $db->prepare('INSERT INTO ' . $table . ' (value) VALUES (:value)');
+        $insert->execute([':value' => $value]);
+        $select = $db->prepare('SELECT value FROM ' . $table . ' WHERE value = :value LIMIT 1');
+        $select->execute([':value' => $value]);
+        $ready = $select->fetchColumn() === $value;
+        $delete = $db->prepare('DELETE FROM ' . $table . ' WHERE value = :value');
+        $delete->execute([':value' => $value]);
+        $db->commit();
+        $db->exec('DROP TABLE ' . $table);
+        return ['ready' => $ready, 'error' => $ready ? null : 'SQLite did not return the written probe value.'];
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) $db->rollBack();
+        try { $db->exec('DROP TABLE IF EXISTS ' . $table); } catch (Throwable) { }
+        return ['ready' => false, 'error' => diagnosticError($error, [databasePath(), dataDirectory()])];
+    }
+}
+
+/** Check WAL sidecars independently so a WAL diagnostic cannot alter the CRUD result. */
+function sqliteWalCheck(PDO $db, string $path): array
+{
+    try {
+        $mode = strtolower((string) $db->query('PRAGMA journal_mode')->fetchColumn());
+        if ($mode !== 'wal') return ['ready' => true, 'mode' => $mode, 'error' => null];
+        $wal = $path . '-wal';
+        $shm = $path . '-shm';
+        $ready = is_file($wal) && is_writable($wal) && is_file($shm) && is_writable($shm);
+        return ['ready' => $ready, 'mode' => $mode, 'error' => $ready ? null : 'WAL is active, but its sidecar files are missing or not writable.'];
+    } catch (Throwable $error) {
+        return ['ready' => false, 'mode' => 'unavailable', 'error' => diagnosticError($error, [$path, dirname($path)])];
+    }
+}
+
+/** Return a short diagnostic without stack traces or known private storage paths. */
+function diagnosticError(Throwable $error, array $privatePaths = []): string
+{
+    $message = preg_replace('/[\x00-\x1F\x7F]+/', ' ', trim($error->getMessage())) ?? 'The check failed.';
+    foreach ($privatePaths as $path) {
+        if (is_string($path) && $path !== '') $message = str_replace($path, '[private path]', $message);
+    }
+    $message = trim(preg_replace('/\s+/', ' ', $message) ?? 'The check failed.');
+    return $message === '' ? 'The check failed.' : substr($message, 0, 180);
+}
+
 /** Versioned, repeatable migrations. Each migration and version marker commit atomically. */
 function migrateDatabase(PDO $db): int
 {
@@ -397,6 +448,26 @@ function schemaAudit(PDO $db, string $profile, ?array $config = null): array
     return ['status' => $unexpected ? 'FAIL' : 'PASS', 'tables' => $tables, 'unexpected' => $unexpected];
 }
 
+function runtimePrivacyChecks(): array
+{
+    $runtimeFiles = [dirname(__DIR__) . '/track.js', dirname(__DIR__) . '/track.php', __FILE__];
+    $runtimeCode = array_map(static fn($file) => is_file($file) ? (string) file_get_contents($file) : '', $runtimeFiles);
+    $runtimeAvailable = !in_array('', $runtimeCode, true);
+    $remotePattern = '~https?' . ':' . '/' . '/~i';
+    $remoteEndpoint = false;
+    $remoteClient = false;
+    foreach ($runtimeCode as $source) {
+        if (preg_match($remotePattern, $source)) $remoteEndpoint = true;
+        if (preg_match('/\b(?:curl_init|fsockopen|pfsockopen)\s*\(/i', $source)) $remoteClient = true;
+    }
+    $localTracker = $runtimeAvailable && str_contains($runtimeCode[0], "new URL('track.php', current.src)")
+        && str_contains($runtimeCode[0], 'navigator.sendBeacon') && str_contains($runtimeCode[0], 'fetch(endpoint');
+    return [
+        ['name' => 'Same-origin tracker endpoint', 'status' => $localTracker && !$remoteEndpoint ? 'PASS' : 'FAIL'],
+        ['name' => 'No third-party analytics or enrichment client in runtime sources', 'status' => $runtimeAvailable && !$remoteEndpoint && !$remoteClient ? 'PASS' : 'FAIL'],
+    ];
+}
+
 function privacySelfTest(PDO $db): array
 {
     $config = effectivePrivacyConfig($db);
@@ -421,19 +492,7 @@ function privacySelfTest(PDO $db): array
     $checks[] = ['name' => 'Aggregate schema audit', 'status' => $schema['status']];
     $checks[] = ['name' => 'IP address not in Barelytics schema', 'status' => $schema['status']];
     $checks[] = ['name' => 'Retention period configured', 'status' => in_array($config['retention_days'], [30,90,180,365], true) ? 'PASS' : 'FAIL'];
-    $runtimeFiles = [dirname(__DIR__) . '/track.js', dirname(__DIR__) . '/track.php', __FILE__];
-    $runtimeCode = array_map(static fn($file) => is_file($file) ? (string) file_get_contents($file) : '', $runtimeFiles);
-    $runtimeAvailable = !in_array('', $runtimeCode, true);
-    $remoteEndpoint = false;
-    $remoteClient = false;
-    foreach ($runtimeCode as $source) {
-        if (preg_match('~https?://~i', $source)) $remoteEndpoint = true;
-        if (preg_match('/\b(?:curl_init|fsockopen|pfsockopen)\s*\(/i', $source)) $remoteClient = true;
-    }
-    $localTracker = $runtimeAvailable && str_contains($runtimeCode[0], "new URL('track.php', current.src)")
-        && str_contains($runtimeCode[0], 'navigator.sendBeacon') && str_contains($runtimeCode[0], 'fetch(endpoint');
-    $checks[] = ['name' => 'Same-origin tracker endpoint', 'status' => $localTracker && !$remoteEndpoint ? 'PASS' : 'FAIL'];
-    $checks[] = ['name' => 'No third-party analytics or enrichment client in runtime sources', 'status' => $runtimeAvailable && !$remoteEndpoint && !$remoteClient ? 'PASS' : 'FAIL'];
+    $checks = array_merge($checks, runtimePrivacyChecks());
     return ['checks' => $checks, 'result' => in_array('FAIL', array_column($checks, 'status'), true) ? 'FAIL' : (in_array('WARN', array_column($checks, 'status'), true) ? 'WARN' : 'PASS'), 'schema' => $schema];
 }
 

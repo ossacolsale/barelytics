@@ -9,6 +9,10 @@ use function Barelytics\normalizePath;
 use function Barelytics\passwordMeetsMinimum;
 use function Barelytics\referrerHost;
 use function Barelytics\requestCountry;
+use function Barelytics\databasePath;
+use function Barelytics\databaseWriteCheck;
+use function Barelytics\sqliteWalCheck;
+use function Barelytics\runtimePrivacyChecks;
 
 $checks = 0;
 $assert = static function (bool $condition, string $message) use (&$checks): void {
@@ -42,6 +46,11 @@ $assert(escape('<script>alert("x")</script>') === '&lt;script&gt;alert(&quot;x&q
 $assert(!passwordMeetsMinimum('short'), 'short passwords are rejected');
 $assert(!passwordMeetsMinimum('éééé'), 'password length is measured in characters, not UTF-8 bytes');
 $assert(passwordMeetsMinimum('long-password'), '12-character password is accepted');
+$installerSource = (string) file_get_contents(dirname(__DIR__) . '/public/barelytics/install.php');
+$assert((bool) preg_match('/^use function Barelytics\\\\databasePath;\s*$/m', $installerSource), 'installer imports the namespaced databasePath function');
+$assert(function_exists('Barelytics\\databasePath'), 'namespaced databasePath helper is available');
+$runtimeChecks = runtimePrivacyChecks();
+$assert(count($runtimeChecks) === 2 && count(array_filter($runtimeChecks, static fn($check) => $check['status'] !== 'PASS')) === 0, 'runtime privacy source scan passes without matching its own URL detector');
 $tokenFixture = bin2hex(random_bytes(32));
 $tokenPath = sys_get_temp_dir() . '/barelytics-token-' . bin2hex(random_bytes(6));
 file_put_contents($tokenPath, 'sha256:' . hash('sha256', $tokenFixture));
@@ -92,6 +101,13 @@ if (!$sqliteAvailable) {
     putenv('BARELYTICS_DATABASE_PATH=' . $tmp . '/analytics.sqlite');
     try {
         $db = \Barelytics\openDatabase();
+        $crudProbe = databaseWriteCheck($db);
+        $assert($crudProbe['ready'], 'installer CRUD probe creates, reads, deletes, commits, and drops its database test table');
+        $walProbe = sqliteWalCheck($db, databasePath());
+        $assert($walProbe['ready'], 'installer WAL check passes when WAL sidecars are available or SQLite uses its fallback mode');
+        if ($walProbe['mode'] === 'wal') $assert(is_file(databasePath() . '-wal') && is_file(databasePath() . '-shm'), 'WAL probe verifies both SQLite sidecar files');
+        $failedWalProbe = sqliteWalCheck($db, $tmp . '/missing/analytics.sqlite');
+        $assert(!$failedWalProbe['ready'] && $crudProbe['ready'], 'a WAL diagnostic failure does not change the independent successful CRUD result');
         $assert(\Barelytics\schemaVersion($db) === \Barelytics\CURRENT_SCHEMA_VERSION, 'fresh database receives the current schema migration');
         $assert(\Barelytics\migrateDatabase($db) === \Barelytics\CURRENT_SCHEMA_VERSION, 'schema migration is safe to repeat');
         $privacy = \Barelytics\effectivePrivacyConfig($db);

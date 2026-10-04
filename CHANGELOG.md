@@ -19,6 +19,7 @@ All notable changes to Barelytics are documented here.
 - Subdirectory-aware JavaScript and generic PHP integrations for static and server-rendered sites.
 - PHP/SQLite/Plesk/Nginx diagnostics, FTP backup/upgrade guides, and manual host acceptance matrix.
 - Dependency-free regression/integration checks and PHP 8.1–8.5 CI matrix.
+- Independent SQLite CRUD and WAL/SHM installer probes with isolated diagnostics and sanitized failure messages.
 
 ### Privacy
 

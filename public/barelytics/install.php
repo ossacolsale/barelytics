@@ -14,6 +14,9 @@ require_once __DIR__ . '/src/Barelytics.php';
 use function Barelytics\adminHeaders;
 use function Barelytics\connectDatabase;
 use function Barelytics\csrfToken;
+use function Barelytics\databasePath;
+use function Barelytics\databaseWriteCheck;
+use function Barelytics\diagnosticError;
 use function Barelytics\dataDirectory;
 use function Barelytics\escape;
 use function Barelytics\isHttpsRequest;
@@ -29,6 +32,7 @@ use function Barelytics\setupTokenPath;
 use function Barelytics\verifySetupToken;
 use function Barelytics\verifyResetToken;
 use function Barelytics\startAdminSession;
+use function Barelytics\sqliteWalCheck;
 use function Barelytics\webrootStatus;
 use const Barelytics\CURRENT_SCHEMA_VERSION;
 use const Barelytics\APPLICATION_VERSION;
@@ -56,28 +60,32 @@ $sqliteVersion = 'unavailable';
 $sqliteVersionReady = false;
 $walMode = 'unavailable';
 $walReady = false;
+$databaseError = null;
+$walError = null;
+$versionError = null;
 $db = null;
 if ($driverReady && $writable) {
     try {
         $db = connectDatabase();
-        $sqliteVersion = (string) $db->query('SELECT sqlite_version()')->fetchColumn();
-        $sqliteVersionReady = version_compare($sqliteVersion, '3.24.0', '>=');
-        $walMode = strtolower((string) $db->query('PRAGMA journal_mode')->fetchColumn());
-        $db->exec('CREATE TABLE IF NOT EXISTS __barelytics_install_check (value TEXT NOT NULL)');
-        $db->beginTransaction();
-        $db->exec("INSERT INTO __barelytics_install_check (value) VALUES ('write-test')");
-        $dbReady = $db->query('SELECT value FROM __barelytics_install_check LIMIT 1')->fetchColumn() === 'write-test';
-        $walReady = $walMode !== 'wal' || (
-            is_file(databasePath() . '-wal') && is_writable(databasePath() . '-wal')
-            && is_file(databasePath() . '-shm') && is_writable(databasePath() . '-shm')
-        );
-        $db->exec('DELETE FROM __barelytics_install_check');
-        $db->commit();
-        $db->exec('DROP TABLE __barelytics_install_check');
-    } catch (Throwable $ignored) {
-        if ($db instanceof PDO && $db->inTransaction()) $db->rollBack();
-        $dbReady = false;
-        $walReady = false;
+    } catch (Throwable $failure) {
+        $databaseError = diagnosticError($failure, [databasePath(), $dataDir]);
+    }
+    if ($db instanceof PDO) {
+        try {
+            $sqliteVersion = (string) $db->query('SELECT sqlite_version()')->fetchColumn();
+            $sqliteVersionReady = version_compare($sqliteVersion, '3.24.0', '>=');
+        } catch (Throwable $failure) {
+            $versionError = diagnosticError($failure, [databasePath(), $dataDir]);
+        }
+        $crud = databaseWriteCheck($db);
+        $dbReady = $crud['ready'];
+        if (!$dbReady) $databaseError = $crud['error'];
+        $wal = sqliteWalCheck($db, databasePath());
+        $walMode = $wal['mode'];
+        $walReady = $wal['ready'];
+        $walError = $wal['error'];
+    } else {
+        $walError = 'SQLite sidecars could not be checked because the database connection is unavailable.';
     }
 }
 $sessionReady = function_exists('session_start') && function_exists('session_set_cookie_params');
@@ -102,10 +110,10 @@ $checks = [
     ['PHP version', PHP_VERSION_ID >= SUPPORTED_PHP_MIN && PHP_VERSION_ID <= SUPPORTED_PHP_MAX, 'Supported range is PHP 8.1 through 8.5. Detected ' . PHP_VERSION . '.'],
     ['PDO', class_exists(PDO::class), 'PDO must be enabled by the hosting provider.'],
     ['PDO SQLite', $driverReady, 'Barelytics requires PDO SQLite. Enable the PHP SQLite/PDO SQLite extension in your hosting control panel or ask your hosting provider to enable it, then reload this page.'],
-    ['SQLite version', $sqliteVersionReady, 'SQLite 3.24 or newer is required for prepared aggregate upserts. Detected ' . $sqliteVersion . '.'],
+    ['SQLite version', $sqliteVersionReady, $versionError !== null ? 'SQLite version check failed: ' . $versionError : 'SQLite 3.24 or newer is required for prepared aggregate upserts. Detected ' . $sqliteVersion . '.'],
     ['Data directory', $writable, 'The selected data directory must exist and be writable by the PHP process. Use your hosting file manager to adjust ownership or select the Apache-protected fallback.'],
-    ['Database write test', $dbReady, 'Barelytics could not create, read, and delete a temporary database value. Check the directory and SQLite permissions.'],
-    ['SQLite WAL/SHM', $walReady, $walMode === 'wal' ? ($walReady ? 'WAL mode is enabled and both sidecar files were created and are writable.' : 'WAL mode is enabled, but sidecar files could not be verified. Check database-folder write access.') : 'WAL is unavailable on this filesystem; SQLite is using its fallback journal mode.'],
+    ['Database write test', $dbReady, $dbReady ? 'SQLite created, read, deleted, and committed a temporary database value.' : 'SQLite database write test failed: ' . ($databaseError ?? 'Check the data directory and SQLite permissions.')],
+    ['SQLite WAL/SHM', $walReady, $walError !== null ? 'SQLite WAL/SHM check failed: ' . $walError : ($walMode === 'wal' ? 'WAL mode is enabled and both sidecar files were created and are writable.' : 'WAL is unavailable on this filesystem; SQLite is using its fallback journal mode.')],
     ['Admin sessions', $sessionReady, 'PHP sessions must be enabled and writable by the hosting provider.'],
     ['Data protection', $protection['secure'], $protection['mode'] === 'webroot-unverified' ? 'The data directory is under the webroot and this server does not confirm Apache access controls. Choose storage outside the webroot.' : 'Use data storage outside the webroot, or Apache with an effective Require all denied rule. Nginx-only in-webroot storage is refused.'],
 ];

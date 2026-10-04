@@ -8,7 +8,7 @@
 - HTTPS before production credentials are submitted
 - Apache `.htaccess` support for the in-webroot fallback, or writable private storage outside the document root
 
-The installer checks PHP version, PDO, SQLite, data-directory write access, database read/write/delete, sessions, HTTPS, webroot placement, and setup state. It displays a hosting-control-panel action when a required extension is missing. It does not show raw exception text or filesystem paths to unauthenticated visitors.
+The installer checks PHP version, PDO, SQLite, data-directory write access, database read/write/delete, WAL/SHM sidecars, sessions, HTTPS, webroot placement, and setup state. It displays a hosting-control-panel action when a required extension is missing. Database diagnostics show a short sanitized error when a check fails; they do not show stack traces, credentials, tokens, or private storage paths.
 
 ## Upload and initialize
 
