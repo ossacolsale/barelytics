@@ -21,6 +21,8 @@ $assert = static function (bool $condition, string $message) use (&$checks): voi
     $checks++;
 };
 
+$assert(\Barelytics\SUPPORTED_PHP_MIN === 80200, 'supported PHP baseline excludes the end-of-life 8.1 branch');
+$assert(\Barelytics\SUPPORTED_PHP_MAX === 80599, 'supported PHP ceiling matches the CI matrix');
 $assert(normalizePath('/articles/example') === '/articles/example', 'normal page paths are accepted');
 $assert(normalizePath('/articles//example') === '/articles/example', 'repeated slashes are normalized');
 $assert(normalizePath('/users/123456/profile') === '/users/:id/profile', 'numeric record identifiers are collapsed');

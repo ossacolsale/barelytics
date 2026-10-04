@@ -24,7 +24,7 @@ const PRIVACY_DEFAULTS = [
     'os_collection' => false,
 ];
 const DEFAULT_PATH_EXCLUSIONS = ['/admin/*', '/admin.php', '/account/*', '/checkout/*', '/customer/*', '/patient/*', '/profile/*', '/private/*'];
-const SUPPORTED_PHP_MIN = 80100;
+const SUPPORTED_PHP_MIN = 80200;
 const SUPPORTED_PHP_MAX = 80599;
 
 function normalizePath(string $path, int $maxBytes = 512): ?string

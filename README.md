@@ -12,10 +12,10 @@ By default, Barelytics stores aggregate page views and normalized paths. It does
 
 | Runtime or integration | Supported baseline | Native admin | Host authentication | Standalone mode |
 | --- | --- | --- | --- | --- |
-| PHP | 8.1–8.5, PDO SQLite; FTP/SFTP deployment | Yes | Optional | Yes |
+| PHP | 8.2–8.5, PDO SQLite; FTP/SFTP deployment | Yes | Optional | Yes |
 | Node.js / TypeScript | Node 22 and 24 LTS | Yes | Yes | No |
 | Python | 3.11–3.14 | Yes | Yes | No |
-| .NET / ASP.NET Core | .NET 10 LTS; .NET 8 compatibility target | Yes | Yes | No |
+| .NET / ASP.NET Core | .NET 10 LTS | Yes | Yes | No |
 | Java | Java 21 and 25 | Yes | Yes | No |
 | Ruby | Ruby 3.3, 3.4, and 4.0 | Yes | Yes | No |
 | WordPress | Plugin ZIP assembled from the PHP reference core | Yes | WordPress administrator role | No |

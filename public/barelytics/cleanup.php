@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-if (PHP_VERSION_ID < 80100 || PHP_VERSION_ID > 80599) { exit(1); }
+if (PHP_VERSION_ID < 80200 || PHP_VERSION_ID > 80599) { exit(1); }
 
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once __DIR__ . '/src/Barelytics.php';

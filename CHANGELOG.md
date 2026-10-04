@@ -18,7 +18,7 @@ All notable changes to Barelytics are documented here.
 - Versioned browser migrations and bounded retention cleanup without a cron requirement.
 - Subdirectory-aware JavaScript and generic PHP integrations for static and server-rendered sites.
 - PHP/SQLite/Plesk/Nginx diagnostics, FTP backup/upgrade guides, and manual host acceptance matrix.
-- Dependency-free regression/integration checks and PHP 8.1–8.5 CI matrix.
+- Dependency-free regression/integration checks and PHP 8.2–8.5 CI matrix.
 - Independent SQLite CRUD and WAL/SHM installer probes with isolated diagnostics and sanitized failure messages.
 - Authenticated read-only database diagnostics with an explicit CRUD/WAL probe, plus administrator password changes from the account page.
 - Statistics-first admin navigation with period filters, day/week/month grouping, page totals, per-day page detail, per-page trends, and optional dimension breakdowns.
@@ -27,9 +27,10 @@ All notable changes to Barelytics are documented here.
 
 ### Fixed
 
-- Keep administrator password changes compatible with PDO SQLite transaction handling on PHP 8.1–8.3.
+- Keep administrator password changes compatible with PDO SQLite transaction handling on PHP 8.2–8.3.
 - Resolve ASP.NET Core admin root and trailing-slash requests through one route to prevent ambiguous endpoint matches.
 - Read RubyGems release archives as their outer tar container when validating bundled admin assets.
+- Drop end-of-life PHP 8.1 and the approaching end-of-support .NET 8 target from supported runtimes.
 
 ### Privacy
 

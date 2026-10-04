@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-if (PHP_VERSION_ID < 80100 || PHP_VERSION_ID > 80599) { header('Location: install.php'); exit; }
+if (PHP_VERSION_ID < 80200 || PHP_VERSION_ID > 80599) { header('Location: install.php'); exit; }
 
 require_once __DIR__ . '/src/Barelytics.php';
 require_once __DIR__ . '/src/AdminApi.php';

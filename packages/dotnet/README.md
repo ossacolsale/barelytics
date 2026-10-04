@@ -1,6 +1,6 @@
 # Barelytics for ASP.NET Core
 
-Native SQLite runtime for ASP.NET Core MVC, Razor Pages, and Minimal APIs. Targets .NET 10 LTS and .NET 8 LTS while .NET 8 remains supported. It uses `Microsoft.Data.Sqlite`; EF Core is not required.
+Native SQLite runtime for ASP.NET Core MVC, Razor Pages, and Minimal APIs. Targets .NET 10 LTS. It uses `Microsoft.Data.Sqlite`; EF Core is not required.
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);

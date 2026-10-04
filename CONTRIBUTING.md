@@ -2,7 +2,7 @@
 
 ## Development
 
-Barelytics requires PHP 8.1 or newer with PDO SQLite and JSON enabled. There are no Composer dependencies. Run the dependency-free checks with:
+Barelytics supports PHP 8.2–8.5 with PDO SQLite and JSON enabled. There are no Composer dependencies. Run the dependency-free checks with:
 
 ```sh
 php tests/run.php

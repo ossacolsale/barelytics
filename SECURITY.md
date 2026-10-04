@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest published release. Until a first release exists, the current default branch is the supported development version. The declared runtime range is PHP 8.1–8.5; CI is configured to exercise each version.
+Security fixes are provided for the latest published release. Until a first release exists, the current default branch is the supported development version. The declared runtime range is PHP 8.2–8.5; CI is configured to exercise each version. Native .NET support targets .NET 10 LTS.
 
 ## Reporting a vulnerability
 

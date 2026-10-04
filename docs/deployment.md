@@ -16,7 +16,7 @@ The source lives under `src/` and has Apache denial rules. Nginx PHP hosting mus
 
 ## Runtime and maintenance
 
-The only runtime extensions are PDO SQLite, JSON, and sessions. The supported PHP range is 8.1–8.5. Barelytics has no daemon, worker, queue, Redis, MySQL, external analytics service, or geolocation API.
+The only runtime extensions are PDO SQLite, JSON, and sessions. The supported PHP range is 8.2–8.5. Barelytics has no daemon, worker, queue, Redis, MySQL, external analytics service, or geolocation API.
 
 Retention cleanup runs at most once every 24 hours. PHP-FPM deployments with `fastcgi_finish_request()` do a bounded batch after a tracking response. Other handlers run cleanup on an authenticated admin request. Each batch deletes at most 1,000 expired rows per aggregate table and can resume on a later day. Cron may be used as an optional optimization, never as a requirement.
 

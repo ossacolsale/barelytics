@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-if (PHP_VERSION_ID < 80100 || PHP_VERSION_ID > 80599) {
+if (PHP_VERSION_ID < 80200 || PHP_VERSION_ID > 80599) {
     ini_set('display_errors', '0');
     http_response_code(500);
     header('Content-Type: text/html; charset=UTF-8');
-    echo '<!doctype html><title>Barelytics PHP requirement</title><h1>Unsupported PHP version</h1><p>Barelytics supports PHP 8.1 through 8.5. Select a supported PHP version in your hosting control panel, then reload this page.</p>';
+    echo '<!doctype html><title>Barelytics PHP requirement</title><h1>Unsupported PHP version</h1><p>Barelytics supports PHP 8.2 through 8.5. Select a supported PHP version in your hosting control panel, then reload this page.</p>';
     exit;
 }
 
@@ -124,7 +124,7 @@ $setupFilePresent = is_file(setupTokenPath());
 $resetFilePresent = is_file(resetTokenPath()) && \Barelytics\readTokenHashFile(resetTokenPath()) !== null;
 $permissionMode = $writable && is_dir($dataDir) ? substr(sprintf('%o', fileperms($dataDir)), -4) : 'unavailable';
 $checks = [
-    ['PHP version', PHP_VERSION_ID >= SUPPORTED_PHP_MIN && PHP_VERSION_ID <= SUPPORTED_PHP_MAX, 'Supported range is PHP 8.1 through 8.5. Detected ' . PHP_VERSION . '.'],
+    ['PHP version', PHP_VERSION_ID >= SUPPORTED_PHP_MIN && PHP_VERSION_ID <= SUPPORTED_PHP_MAX, 'Supported range is PHP 8.2 through 8.5. Detected ' . PHP_VERSION . '.'],
     ['PDO', class_exists(PDO::class), 'PDO must be enabled by the hosting provider.'],
     ['PDO SQLite', $driverReady, 'Barelytics requires PDO SQLite. Enable the PHP SQLite/PDO SQLite extension in your hosting control panel or ask your hosting provider to enable it, then reload this page.'],
     ['SQLite version', $sqliteVersionReady, $versionError !== null ? 'SQLite version check failed: ' . $versionError : 'SQLite 3.24 or newer is required for prepared aggregate upserts. Detected ' . $sqliteVersion . '.'],
