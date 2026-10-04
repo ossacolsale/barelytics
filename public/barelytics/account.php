@@ -45,8 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($current === '' || strlen($current) > 1024) {
         $error = 'The current password is incorrect.';
     } else {
+        $transactionOpen = false;
         try {
             $db->exec('BEGIN IMMEDIATE');
+            $transactionOpen = true;
             $hash = setting($db, 'admin_password_hash', '');
             if ($hash === '' || !password_verify($current, $hash)) throw new RuntimeException('Current password is incorrect.');
             $algorithm = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
@@ -57,13 +59,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $statement->execute([':hash' => $newHash]);
                 if ($statement->rowCount() !== 1) throw new RuntimeException('Password setting could not be updated.');
             } finally { $statement->closeCursor(); }
-            $db->commit();
+            $db->exec('COMMIT');
+            $transactionOpen = false;
             session_regenerate_id(true);
             $_SESSION['authenticated'] = true;
             unset($_SESSION['failed_logins'], $_SESSION['login_failures'], $_SESSION['login_window'], $_SESSION['csrf']);
             $message = 'Administrator password changed.';
         } catch (Throwable $failure) {
-            if ($db->inTransaction()) { try { $db->rollBack(); } catch (Throwable) { } }
+            if ($transactionOpen) { try { $db->exec('ROLLBACK'); } catch (Throwable) { } }
             $error = str_contains(strtolower($failure->getMessage()), 'incorrect') ? 'The current password is incorrect.' : 'Password could not be changed. No account settings were altered.';
         }
     }

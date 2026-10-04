@@ -23,6 +23,10 @@ All notable changes to Barelytics are documented here.
 - Authenticated read-only database diagnostics with an explicit CRUD/WAL probe, plus administrator password changes from the account page.
 - Statistics-first admin navigation with period filters, day/week/month grouping, page totals, per-day page detail, per-page trends, and optional dimension breakdowns.
 
+### Fixed
+
+- Keep administrator password changes compatible with PDO SQLite transaction handling on PHP 8.1–8.3.
+
 ### Privacy
 
 - No visitor identifiers, analytics cookies, stored IP addresses, or third-party telemetry.
