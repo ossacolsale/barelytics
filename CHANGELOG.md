@@ -29,6 +29,7 @@ All notable changes to Barelytics are documented here.
 
 - Keep administrator password changes compatible with PDO SQLite transaction handling on PHP 8.1–8.3.
 - Resolve ASP.NET Core admin root and trailing-slash requests through one route to prevent ambiguous endpoint matches.
+- Read RubyGems release archives as their outer tar container when validating bundled admin assets.
 
 ### Privacy
 

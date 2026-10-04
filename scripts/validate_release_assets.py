@@ -2,7 +2,6 @@
 """Check release archives include the shared UI and contain no obvious secret files."""
 from __future__ import annotations
 
-import gzip
 import io
 import sys
 import tarfile
@@ -32,7 +31,10 @@ def inspect_zip(path: Path) -> set[str]:
 
 
 def inspect_targz(path: Path) -> set[str]:
-    with tarfile.open(path, "r:gz") as archive:
+    # RubyGems wraps its gzipped payloads in a plain outer tar; the other
+    # supported source archives are gzip-compressed tarballs. Let tarfile
+    # detect either outer container format.
+    with tarfile.open(path, "r:*") as archive:
         names = set(archive.getnames())
         if path.suffix == ".gem":
             member = next((x for x in archive.getmembers() if x.name.endswith("data.tar.gz")), None)
