@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0
+
+- Default fresh installs and upgrades to Strict privacy mode with optional dimensions disabled.
+- Add opt-in country, referrer-host, browser, device, and operating-system aggregates with private-path exclusions.
+- Add authenticated privacy audit, runtime self-tests, schema verification, SHA-256 configuration fingerprint, configuration history, and HTML/JSON report exports.
+- Add independent browser, database, and server-log verification documentation.
+
 All notable changes to Barelytics are documented here.
 
 ## Unreleased

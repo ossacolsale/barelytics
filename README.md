@@ -16,8 +16,10 @@ Barelytics is a tiny, first-party analytics package for PHP websites. It uses SQ
 - Admin dashboard, CSRF protection, PHP password hashing, and secure sessions
 - Framework-independent JavaScript and PHP integration
 - No third-party analytics requests or hidden telemetry
+- Strict Mode by default, with optional aggregate dimensions controlled by the administrator
+- Privacy audit page with runtime self-tests, schema review, configuration fingerprint/history, and JSON export
 
-Bot/crawler filtering is heuristic and may not identify every automated request. Barelytics is a technical privacy-minimization tool, not a legal compliance guarantee. Site owners must assess requirements for their audience and jurisdictions.
+Strict Mode records aggregate page views only. Country, referrer hostname, browser, device, and operating-system dimensions are individually opt-in. Bot/crawler filtering is heuristic and may not identify every automated request. Barelytics is a technical privacy-minimization tool, not a legal compliance guarantee. Site owners must assess requirements for their audience and jurisdictions.
 
 ## Install with FTP/SFTP
 
@@ -29,7 +31,9 @@ See [INSTALL.md](INSTALL.md) for the FTP-only setup, token helper, storage secur
 
 ## Data and privacy
 
-Barelytics counts page views, not unique people. It stores normalized same-site paths, UTC dates, counts, and optional country codes or referrer hostnames. It does not create a persistent visitor identifier and does not store IP addresses. Country codes come only from a trusted hosting header; absent or invalid values become `XX`.
+Barelytics counts page views, not unique people. Strict Mode stores normalized same-site paths, UTC dates, and aggregate counts. Optional dimensions can be enabled individually in the admin dashboard. It does not create a persistent visitor identifier and does not store IP addresses. Country codes come only from a trusted hosting header; absent or invalid values become `XX`.
+
+Administrators can open **Privacy audit** from the dashboard to inspect the effective profile, run self-tests, review the database schema and configuration history, and export a JSON report. See [the independent verification guide](docs/privacy-audit.md).
 
 ## Repository development
 

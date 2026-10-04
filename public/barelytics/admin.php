@@ -14,6 +14,9 @@ use function Barelytics\runScheduledCleanupIfDue;
 use function Barelytics\requestBasePath;
 use function Barelytics\schemaVersion;
 use function Barelytics\setSetting;
+use function Barelytics\effectivePrivacyConfig;
+use function Barelytics\recordPrivacyConfiguration;
+use const Barelytics\PRIVACY_DEFAULTS;
 use function Barelytics\setting;
 use function Barelytics\startAdminSession;
 use function Barelytics\tableExists;
@@ -87,18 +90,42 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             session_destroy(); header('Location: admin.php'); exit;
         } elseif ($action === 'settings') {
             $retention = $_POST['retention_days'] ?? '';
+            $botText = $_POST['bot_patterns'] ?? '';
+            $exclusions = $_POST['path_exclusions'] ?? '';
+            $optionalEnabled = false;
+            foreach (PRIVACY_DEFAULTS as $key => $_) if (isset($_POST[$key])) $optionalEnabled = true;
             if (!in_array($retention, ['30', '90', '180', '365'], true)) $error = 'Select a supported retention period.';
+            elseif (!is_string($botText) || strlen($botText) > 2000 || count(array_filter(explode("\n", $botText), static fn($line) => strlen(trim($line)) > 200)) > 0) $error = 'The custom bot pattern list is too long or contains a pattern over 200 characters.';
+            elseif (!is_string($exclusions) || strlen($exclusions) > 4000 || count(array_filter(explode("\n", $exclusions), static fn($line) => trim($line) !== '' && (strlen(trim($line)) > 200 || !str_starts_with(trim($line), '/') || str_contains($line, '?') || str_contains($line, '#')))) > 0) $error = 'Use path patterns beginning with /, one per line, without query strings.';
+            elseif ($optionalEnabled && ($_POST['confirm_extended'] ?? '') !== 'yes') $error = 'Confirm that you understand the selected dimensions change the data processed.';
             else {
-                setSetting($db, 'retention_days', $retention);
-                setSetting($db, 'country_collection', isset($_POST['country_collection']) ? '1' : '0');
-                setSetting($db, 'referrer_collection', isset($_POST['referrer_collection']) ? '1' : '0');
-                $botText = $_POST['bot_patterns'] ?? '';
-                if (!is_string($botText) || strlen($botText) > 2000) $error = 'The custom bot pattern list is too long.';
-                else setSetting($db, 'bot_patterns', $botText);
-                if ($error === '') $message = 'Settings saved.';
+                $db->beginTransaction();
+                try {
+                    setSetting($db, 'retention_days', $retention);
+                    foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, isset($_POST[$key]) ? '1' : '0');
+                    setSetting($db, 'privacy_path_exclusions', trim($exclusions));
+                    setSetting($db, 'bot_patterns', $botText);
+                    recordPrivacyConfiguration($db);
+                    $db->commit();
+                    $message = 'Settings saved.';
+                } catch (Throwable) {
+                    if ($db->inTransaction()) $db->rollBack();
+                    $error = 'Settings could not be saved. The previous configuration remains active.';
+                }
+            }
+        } elseif ($action === 'strict') {
+            $db->beginTransaction();
+            try {
+                foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, '0');
+                recordPrivacyConfiguration($db);
+                $db->commit();
+                $message = 'Strict Mode is active. Optional dimensions are disabled; historical aggregates were retained.';
+            } catch (Throwable) {
+                if ($db->inTransaction()) $db->rollBack();
+                $error = 'Strict Mode could not be activated. The previous configuration remains active.';
             }
         } elseif ($action === 'delete_all' && ($_POST['confirm_delete'] ?? '') === 'yes') {
-            $db->exec('DELETE FROM pageviews_daily'); $db->exec('DELETE FROM referrers_daily'); $message = 'All aggregate statistics were deleted.';
+            $db->exec('DELETE FROM pageviews_daily'); $db->exec('DELETE FROM referrers_daily'); if (tableExists($db, 'dimensions_daily')) $db->exec('DELETE FROM dimensions_daily'); $message = 'All aggregate statistics were deleted.';
         } elseif ($action === 'cleanup') {
             $complete = cleanRetentionBatch($db);
             $message = $complete ? 'Expired statistics were removed.' : 'A bounded cleanup batch ran. Further expired records will be removed on a later request.';
@@ -111,20 +138,27 @@ $authenticated = !empty($_SESSION['authenticated']) && $setupDone;
 if ($authenticated && $currentSchema >= CURRENT_SCHEMA_VERSION) runScheduledCleanupIfDue($db);
 $periods = ['7' => '7 days', '30' => '30 days', '90' => '90 days', '180' => '180 days', '365' => '365 days'];
 $period = isset($_GET['period']) && isset($periods[(string) $_GET['period']]) ? (int) $_GET['period'] : 30;
-$retention = (int) setting($db, 'retention_days', '180');
+$retention = effectivePrivacyConfig($db)['retention_days'];
 $period = min($period, $retention);
 $to = gmdate('Y-m-d'); $from = gmdate('Y-m-d', time() - max(0, $period - 1) * 86400);
 $basePath = requestBasePath();
 $jsSnippet = '<script defer src="' . $basePath . 'track.js"></script>';
 $phpSnippet = "require_once rtrim(\$_SERVER['DOCUMENT_ROOT'], '/') . '" . $basePath . "src/Barelytics.php';\n\\Barelytics\\track();";
-$total = 0; $daily = $pages = $countries = $referrers = [];
+$total = 0; $daily = $pages = $countries = $referrers = $dimensionStats = [];
 if ($authenticated && $currentSchema >= CURRENT_SCHEMA_VERSION) {
     $stmt = $db->prepare('SELECT COALESCE(SUM(views), 0) FROM pageviews_daily WHERE day BETWEEN :from AND :to'); $stmt->execute([':from' => $from, ':to' => $to]); $total = (int) $stmt->fetchColumn();
     $stmt = $db->prepare('SELECT day, SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY day ORDER BY day'); $stmt->execute([':from' => $from, ':to' => $to]); $daily = $stmt->fetchAll();
     $stmt = $db->prepare('SELECT path, SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY path ORDER BY views DESC LIMIT 50'); $stmt->execute([':from' => $from, ':to' => $to]); $pages = $stmt->fetchAll();
-    $stmt = $db->prepare('SELECT country, SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY country ORDER BY views DESC'); $stmt->execute([':from' => $from, ':to' => $to]); $countries = $stmt->fetchAll();
-    if (setting($db, 'referrer_collection', '0') === '1') {
+    $effectivePrivacy = effectivePrivacyConfig($db);
+    if ($effectivePrivacy['country_collection']) { $stmt = $db->prepare('SELECT country, SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY country ORDER BY views DESC'); $stmt->execute([':from' => $from, ':to' => $to]); $countries = $stmt->fetchAll(); }
+    if ($effectivePrivacy['referrer_collection']) {
         $stmt = $db->prepare('SELECT referrer_host, SUM(views) AS views FROM referrers_daily WHERE day BETWEEN :from AND :to GROUP BY referrer_host ORDER BY views DESC LIMIT 50'); $stmt->execute([':from' => $from, ':to' => $to]); $referrers = $stmt->fetchAll();
+    }
+    foreach (['browser_collection' => 'browser', 'device_collection' => 'device', 'os_collection' => 'os'] as $flag => $dimension) {
+        if (!$effectivePrivacy[$flag]) continue;
+        $stmt = $db->prepare('SELECT value, SUM(views) AS views FROM dimensions_daily WHERE dimension = :dimension AND day BETWEEN :from AND :to GROUP BY value ORDER BY views DESC');
+        $stmt->execute([':dimension' => $dimension, ':from' => $from, ':to' => $to]);
+        $dimensionStats[$dimension] = $stmt->fetchAll();
     }
 }
 ?><!doctype html>
@@ -137,14 +171,16 @@ if ($authenticated && $currentSchema >= CURRENT_SCHEMA_VERSION) {
 <?php elseif ($currentSchema < CURRENT_SCHEMA_VERSION): ?>
 <section class="card"><h2>Database upgrade required</h2><p>Your aggregate data is intact. Barelytics will apply versioned, retry-safe database migrations, then run a read/write check.</p><p>Back up the private data directory before upgrading.</p><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="migrate"><button>Apply database upgrade</button></form></section>
 <?php else: ?>
-<div class="toolbar"><p>Page views in the selected period: <strong><?= number_format($total) ?></strong></p><form method="get"><label>Period<select name="period"><?php foreach ($periods as $days => $label): if ((int) $days <= $retention): ?><option value="<?= escape($days) ?>" <?= $period === (int) $days ? 'selected' : '' ?>><?= escape($label) ?></option><?php endif; endforeach; ?></select></label><button>Apply</button></form><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="logout"><button class="secondary">Sign out</button></form></div>
+<div class="toolbar"><p>Page views in the selected period: <strong><?= number_format($total) ?></strong></p><form method="get"><label>Period<select name="period"><?php foreach ($periods as $days => $label): if ((int) $days <= $retention): ?><option value="<?= escape($days) ?>" <?= $period === (int) $days ? 'selected' : '' ?>><?= escape($label) ?></option><?php endif; endforeach; ?></select></label><button>Apply</button></form><p><a href="audit.php">Privacy audit</a></p><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="logout"><button class="secondary">Sign out</button></form></div>
 <section class="card"><h2>Connect your site</h2><p>Choose one integration method per page to prevent double counting. The JavaScript snippet works for static HTML pages and adjusts to this Barelytics subdirectory.</p><label>JavaScript snippet<textarea rows="2" readonly><?= escape($jsSnippet) ?></textarea></label><p>For a server-rendered PHP page, add this call once per page response:</p><pre><code><?= escape($phpSnippet) ?></code></pre><p>The site’s Content Security Policy may need its own path under <code>script-src</code> and <code>connect-src</code>. The script makes a same-origin non-blocking POST and fails silently.</p></section>
 <section class="grid"><div class="card"><h2>Daily page views</h2><table><thead><tr><th>Day (UTC)</th><th>Views</th></tr></thead><tbody><?php foreach ($daily as $row): ?><tr><td><?= escape((string) $row['day']) ?></td><td><?= number_format((int) $row['views']) ?></td></tr><?php endforeach; if (!$daily): ?><tr><td colspan="2">No data for this period.</td></tr><?php endif; ?></tbody></table></div>
 <div class="card"><h2>Top pages</h2><table><thead><tr><th>Path</th><th>Views</th></tr></thead><tbody><?php foreach ($pages as $row): ?><tr><td><?= escape((string) $row['path']) ?></td><td><?= number_format((int) $row['views']) ?></td></tr><?php endforeach; if (!$pages): ?><tr><td colspan="2">No data for this period.</td></tr><?php endif; ?></tbody></table></div>
+<?php if (effectivePrivacyConfig($db)['country_collection']): ?>
 <div class="card"><h2>Page views by country</h2><table><thead><tr><th>Country</th><th>Views</th></tr></thead><tbody><?php foreach ($countries as $row): ?><tr><td><?= escape((string) $row['country']) ?></td><td><?= number_format((int) $row['views']) ?></td></tr><?php endforeach; if (!$countries): ?><tr><td colspan="2">No data for this period.</td></tr><?php endif; ?></tbody></table></div>
-<?php if (setting($db, 'referrer_collection', '0') === '1'): ?><div class="card"><h2>Top referrer hosts</h2><table><thead><tr><th>Hostname</th><th>Views</th></tr></thead><tbody><?php foreach ($referrers as $row): ?><tr><td><?= escape((string) $row['referrer_host']) ?></td><td><?= number_format((int) $row['views']) ?></td></tr><?php endforeach; if (!$referrers): ?><tr><td colspan="2">No data for this period.</td></tr><?php endif; ?></tbody></table></div><?php endif; ?></section>
+<?php endif; ?>
+<?php $dashboardPrivacy = effectivePrivacyConfig($db); if ($dashboardPrivacy['referrer_collection']): ?><div class="card"><h2>Top referrer hosts</h2><table><thead><tr><th>Hostname</th><th>Views</th></tr></thead><tbody><?php foreach ($referrers as $row): ?><tr><td><?= escape((string) $row['referrer_host']) ?></td><td><?= number_format((int) $row['views']) ?></td></tr><?php endforeach; if (!$referrers): ?><tr><td colspan="2">No data for this period.</td></tr><?php endif; ?></tbody></table></div><?php endif; ?><?php foreach (['browser'=>'Browser category','device'=>'Device category','os'=>'Operating system category'] as $dimension => $label): if (isset($dimensionStats[$dimension])): ?><div class="card"><h2><?= escape($label) ?></h2><table><thead><tr><th>Category</th><th>Views</th></tr></thead><tbody><?php foreach ($dimensionStats[$dimension] as $row): ?><tr><td><?= escape((string) $row['value']) ?></td><td><?= number_format((int) $row['views']) ?></td></tr><?php endforeach; if (!$dimensionStats[$dimension]): ?><tr><td colspan="2">No data for this period.</td></tr><?php endif; ?></tbody></table></div><?php endif; endforeach; ?></section>
 <p class="note">Bot/crawler filtering is heuristic and may not identify every automated request.</p>
-<section class="card"><h2>Configuration</h2><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="settings"><label>Retention<select name="retention_days"><?php foreach ([30, 90, 180, 365] as $value): ?><option value="<?= $value ?>" <?= $retention === $value ? 'selected' : '' ?>><?= $value ?> days</option><?php endforeach; ?></select></label><label class="check"><input type="checkbox" name="country_collection" <?= setting($db, 'country_collection', '1') === '1' ? 'checked' : '' ?>> Store country code from trusted server header</label><label class="check"><input type="checkbox" name="referrer_collection" <?= setting($db, 'referrer_collection', '0') === '1' ? 'checked' : '' ?>> Store referrer hostname</label><label>Additional bot patterns, one per line<textarea name="bot_patterns" rows="4" maxlength="2000"><?= escape(setting($db, 'bot_patterns', '')) ?></textarea></label><button>Save settings</button></form></section>
+<section class="card"><h2>Analytics privacy</h2><?php $privacy = effectivePrivacyConfig($db); ?><p>Effective profile: <strong><?= strtoupper(escape($privacy['profile'])) ?></strong>. Strict Mode records aggregate page views only. Optional dimensions use coarse aggregate categories and can be disabled at any time.</p><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="settings"><label>Aggregate retention<select name="retention_days"><?php foreach ([30, 90, 180, 365] as $value): ?><option value="<?= $value ?>" <?= $retention === $value ? 'selected' : '' ?>><?= $value ?> days</option><?php endforeach; ?></select></label><h3>Optional dimensions</h3><label class="check"><input type="checkbox" name="country_collection" <?= $privacy['country_collection'] ? 'checked' : '' ?>> Country from trusted server header (only two-letter country code; no external lookup)</label><label class="check"><input type="checkbox" name="referrer_collection" <?= $privacy['referrer_collection'] ? 'checked' : '' ?>> Referrer hostname (drops paths and query strings)</label><label class="check"><input type="checkbox" name="browser_collection" <?= $privacy['browser_collection'] ? 'checked' : '' ?>> Coarse browser category</label><label class="check"><input type="checkbox" name="device_collection" <?= $privacy['device_collection'] ? 'checked' : '' ?>> Coarse device category</label><label class="check"><input type="checkbox" name="os_collection" <?= $privacy['os_collection'] ? 'checked' : '' ?>> Coarse operating-system category</label><p>Enabling any option changes the effective profile to Extended. Barelytics does not support visitor IDs, fingerprinting, query-string analytics, generic events, browser storage, or third-party analytics.</p><label class="check"><input type="checkbox" name="confirm_extended" value="yes"> I understand optional dimensions change the information processed by Barelytics.</label><label>Private path exclusions, one pattern per line<textarea name="path_exclusions" rows="5" maxlength="4000"><?= escape(implode("\n", $privacy['path_exclusions'])) ?></textarea></label><p>Excluded paths are not recorded. Query strings and fragments are always omitted.</p><label>Additional bot patterns, one per line<textarea name="bot_patterns" rows="4" maxlength="2000"><?= escape(setting($db, 'bot_patterns', '')) ?></textarea></label><button>Save privacy settings</button></form><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="strict"><button class="secondary">Return to Strict Mode</button></form></section>
 <section class="card"><h2>Maintenance</h2><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="cleanup"><button class="secondary">Delete statistics older than retention</button></form><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="delete_all"><label class="check"><input type="checkbox" name="confirm_delete" value="yes" required> I understand this permanently deletes all statistics</label><button class="danger">Delete all statistics</button></form></section>
 <?php $storageStatus = webrootStatus(dataDirectory()); ?>
 <section class="card"><h2>Diagnostics</h2><table><tbody><tr><th>Barelytics</th><td><?= escape(setting($db, 'application_version', 'development')) ?></td></tr><tr><th>PHP</th><td><?= escape(PHP_VERSION) ?></td></tr><tr><th>SQLite</th><td><?= escape((string) $db->query('SELECT sqlite_version()')->fetchColumn()) ?></td></tr><tr><th>PDO SQLite</th><td>Available</td></tr><tr><th>HTTPS</th><td><?= \Barelytics\isHttpsRequest() ? 'Active' : 'Warning: this request is not HTTPS' ?></td></tr><tr><th>Data storage</th><td><?= $storageStatus['inside'] ? 'Inside document root; Apache denial rule configured. Verify host enforcement.' : 'Outside document root or server path is private' ?></td></tr><tr><th>Schema</th><td><?= (int) $currentSchema ?> / <?= CURRENT_SCHEMA_VERSION ?></td></tr><tr><th>Last migration (UTC)</th><td><?= escape(setting($db, 'last_migration_at', 'Not recorded')) ?></td></tr><tr><th>Last retention cleanup (UTC)</th><td><?= escape(setting($db, 'last_cleanup_at', 'Not run yet')) ?></td></tr><tr><th>Tracker endpoint</th><td>Same-origin POST endpoint available</td></tr></tbody></table></section>

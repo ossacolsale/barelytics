@@ -14,7 +14,16 @@ const DEFAULT_BOT_PATTERNS = [
     'twitterbot', 'linkedinbot', 'discordbot', 'telegrambot', 'whatsapp', 'petalbot',
     'yandex', 'baiduspider', 'bytespider', 'duckduckbot', 'applebot', 'googlebot', 'bingbot',
 ];
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
+const APPLICATION_VERSION = '1.1.0';
+const PRIVACY_DEFAULTS = [
+    'country_collection' => false,
+    'referrer_collection' => false,
+    'browser_collection' => false,
+    'device_collection' => false,
+    'os_collection' => false,
+];
+const DEFAULT_PATH_EXCLUSIONS = ['/admin/*', '/admin.php', '/account/*', '/checkout/*', '/customer/*', '/patient/*', '/profile/*', '/private/*'];
 const SUPPORTED_PHP_MIN = 80100;
 const SUPPORTED_PHP_MAX = 80599;
 
@@ -35,9 +44,10 @@ function normalizePath(string $path, int $maxBytes = 512): ?string
     if (preg_match('//u', $decodedPath) !== 1 || preg_match('/[\x00-\x1F\x7F]/', $decodedPath)
         || str_contains($decodedPath, '@') || str_contains($decodedPath, '?') || str_contains($decodedPath, '#')) return null;
     // Collapse common numeric and UUID-style record identifiers before aggregation.
-    $identifierPattern = '~(?<=/)(?:[0-9]{6,}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=/|$)~i';
+    $identifierPattern = '~(?<=/)(?:[0-9]{6,}|[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{16,}|[A-Za-z0-9_-]{32,})(?=/|$)~i';
     if ($decodedPath !== $path && preg_match($identifierPattern, $decodedPath)) return null;
     $path = preg_replace($identifierPattern, ':id', $path) ?? $path;
+    if (preg_match('~(?<=/)[^/]*@[^/]*(?=/|$)~', $path)) return null;
     return $path;
 }
 
@@ -212,6 +222,17 @@ function migrateDatabase(PDO $db): int
             setSetting($db, 'application_version', '1.0.0');
             setSetting($db, 'last_migration_at', gmdate('Y-m-d H:i:s'));
         },
+        2 => static function (PDO $db): void {
+            $db->exec('CREATE TABLE IF NOT EXISTS dimensions_daily (day TEXT NOT NULL, path TEXT NOT NULL, dimension TEXT NOT NULL, value TEXT NOT NULL, views INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, path, dimension, value))');
+            $db->exec('CREATE TABLE IF NOT EXISTS privacy_configuration_history (timestamp TEXT NOT NULL, profile TEXT NOT NULL, effective_configuration_json TEXT NOT NULL, configuration_hash TEXT NOT NULL, application_version TEXT NOT NULL, schema_version INTEGER NOT NULL)');
+            // Upgrades must never turn on optional collection by inheriting legacy code defaults.
+            foreach (PRIVACY_DEFAULTS as $key => $default) {
+                if (setting($db, $key, '') === '') setSetting($db, $key, '0');
+            }
+            if (setting($db, 'privacy_path_exclusions', '') === '') setSetting($db, 'privacy_path_exclusions', implode("\n", DEFAULT_PATH_EXCLUSIONS));
+            setSetting($db, 'application_version', APPLICATION_VERSION);
+            setSetting($db, 'last_migration_at', gmdate('Y-m-d H:i:s'));
+        },
     ];
     $stmt = $db->query('SELECT COALESCE(MAX(version), 0) FROM schema_migrations');
     $applied = (int) $stmt->fetchColumn();
@@ -233,6 +254,7 @@ function migrateDatabase(PDO $db): int
         }
         $applied = $version;
     }
+    if (tableExists($db, 'privacy_configuration_history')) recordPrivacyConfiguration($db);
     return $applied;
 }
 
@@ -254,6 +276,165 @@ function schemaVersion(PDO $db): int
 {
     if (!tableExists($db, 'schema_migrations')) return 0;
     return (int) $db->query('SELECT COALESCE(MAX(version), 0) FROM schema_migrations')->fetchColumn();
+}
+
+/** Canonical effective configuration shared by tracking, administration and audit. Invalid values fail closed. */
+function effectivePrivacyConfig(PDO $db): array
+{
+    $config = ['pageviews' => true, 'retention_days' => 180];
+    foreach (PRIVACY_DEFAULTS as $key => $default) {
+        try { $value = setting($db, $key, '0'); }
+        catch (Throwable) { $value = '0'; }
+        $config[$key] = $value === '1';
+    }
+    try {
+        $retention = setting($db, 'retention_days', '180');
+        $config['retention_days'] = in_array($retention, ['30', '90', '180', '365'], true) ? (int) $retention : 180;
+        $raw = setting($db, 'privacy_path_exclusions', implode("\n", DEFAULT_PATH_EXCLUSIONS));
+        $config['path_exclusions'] = array_values(array_unique(array_filter(array_map('trim', explode("\n", $raw)), static fn($v) => $v !== '' && strlen($v) <= 200)));
+        $botText = setting($db, 'bot_patterns', '');
+        $config['bot_patterns'] = array_values(array_unique(array_filter(array_map('trim', explode("\n", $botText)), static fn($v) => $v !== '' && strlen($v) <= 200)));
+    } catch (Throwable) {
+        $config['path_exclusions'] = DEFAULT_PATH_EXCLUSIONS;
+        $config['bot_patterns'] = [];
+    }
+    sort($config['path_exclusions'], SORT_STRING);
+    sort($config['bot_patterns'], SORT_STRING);
+    $config['trusted_country_header'] = getenv('BARELYTICS_COUNTRY_HEADER') ?: 'HTTP_CF_IPCOUNTRY';
+    $config['profile'] = count(array_filter(array_intersect_key($config, PRIVACY_DEFAULTS))) === 0 ? 'strict' : 'extended';
+    // Identifiers, storage, generic events, query strings and third-party services are unsupported.
+    $config += ['visitor_id' => false, 'session_id' => false, 'fingerprinting' => false, 'cookies' => false,
+        'local_storage' => false, 'session_storage' => false, 'indexeddb' => false, 'cross_site_tracking' => false,
+        'event_collection' => false, 'query_string_collection' => false, 'third_party_analytics' => false,
+        'user_agent_collection' => false, 'screen_dimensions' => false, 'language_collection' => false, 'custom_parameters' => false];
+    return $config;
+}
+
+function privacyFingerprint(PDO $db): string
+{
+    $config = effectivePrivacyConfig($db);
+    ksort($config);
+    return hash('sha256', json_encode(['application_version' => APPLICATION_VERSION, 'schema_version' => schemaVersion($db), 'configuration' => $config], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+}
+
+function recordPrivacyConfiguration(PDO $db): void
+{
+    if (!tableExists($db, 'privacy_configuration_history')) return;
+    $config = effectivePrivacyConfig($db);
+    $json = json_encode($config, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    $hash = privacyFingerprint($db);
+    $stmt = $db->prepare('SELECT configuration_hash FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 1');
+    $stmt->execute();
+    if ($stmt->fetchColumn() === $hash) return;
+    $stmt = $db->prepare('INSERT INTO privacy_configuration_history (timestamp, profile, effective_configuration_json, configuration_hash, application_version, schema_version) VALUES (:timestamp, :profile, :json, :hash, :version, :schema)');
+    $stmt->execute([':timestamp' => gmdate('Y-m-d\TH:i:s\Z'), ':profile' => strtoupper($config['profile']), ':json' => $json,
+        ':hash' => $hash, ':version' => APPLICATION_VERSION, ':schema' => schemaVersion($db)]);
+}
+
+function pathIsExcluded(string $path, array $patterns): bool
+{
+    foreach ($patterns as $pattern) {
+        $quoted = preg_quote($pattern, '~');
+        $regex = '~^' . str_replace('\\*', '.*', $quoted) . '$~';
+        if (preg_match($regex, $path)) return true;
+    }
+    return false;
+}
+
+function schemaAudit(PDO $db, string $profile, ?array $config = null): array
+{
+    $config ??= [];
+    $allowed = ['day', 'path', 'views', 'country'];
+    $tables = ['pageviews_daily', 'referrers_daily', 'dimensions_daily'];
+    $unexpected = [];
+    $tableColumns = [];
+    foreach ($tables as $table) {
+        if (!tableExists($db, $table)) {
+            $required = $table === 'pageviews_daily'
+                || ($table === 'referrers_daily' && !empty($config['referrer_collection']))
+                || ($table === 'dimensions_daily' && (!empty($config['browser_collection']) || !empty($config['device_collection']) || !empty($config['os_collection'])));
+            if ($required) $unexpected[] = 'missing table ' . $table;
+            continue;
+        }
+        $columns = $db->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+        $tableColumns[$table] = array_map(static fn($column) => strtolower((string) $column['name']), $columns);
+        $required = $table === 'dimensions_daily' ? ['day','path','dimension','value','views']
+            : ($table === 'referrers_daily' ? ['day','path','referrer_host','views'] : ['day','path','country','views']);
+        foreach ($required as $column) if (!in_array($column, $tableColumns[$table], true)) $unexpected[] = 'missing column ' . $table . '.' . $column;
+        foreach ($columns as $column) {
+            $name = strtolower((string) $column['name']);
+            $valid = $table === 'dimensions_daily' ? in_array($name, ['day','path','dimension','value','views'], true)
+                : ($table === 'referrers_daily' ? in_array($name, ['day','path','referrer_host','views'], true) : in_array($name, $allowed, true));
+            if (!$valid) $unexpected[] = $table . '.' . $name;
+        }
+    }
+    $allTables = $db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($allTables as $table) {
+        if (in_array($table, ['pageviews_daily','referrers_daily','dimensions_daily','privacy_configuration_history','settings','schema_migrations','maintenance_state','schema_version'], true)) continue;
+        $unexpected[] = 'unrecognized table ' . (string) $table;
+        $quotedTable = '"' . str_replace('"', '""', (string) $table) . '"';
+        $columns = $db->query('PRAGMA table_info(' . $quotedTable . ')')->fetchAll();
+        foreach ($columns as $column) {
+            $name = strtolower((string) $column['name']);
+            if (preg_match('/(^|_)(ip|ip_address|visitor_id|user_id|session_id|cookie_id|fingerprint|user_agent|screen_width|screen_height)(_|$)/', $name)) $unexpected[] = $table . '.' . $name;
+        }
+    }
+    if (isset($tableColumns['pageviews_daily']) && in_array('country', $tableColumns['pageviews_daily'], true) && empty($config['country_collection']) && (int) $db->query("SELECT COUNT(*) FROM pageviews_daily WHERE country <> 'XX'")->fetchColumn() > 0) $unexpected[] = 'country aggregate data exists while country collection is disabled';
+    if (tableExists($db, 'referrers_daily') && empty($config['referrer_collection']) && (int) $db->query('SELECT COUNT(*) FROM referrers_daily')->fetchColumn() > 0) $unexpected[] = 'referrer aggregate data exists while referrer collection is disabled';
+    if (isset($tableColumns['dimensions_daily']) && in_array('dimension', $tableColumns['dimensions_daily'], true)) {
+        foreach (['browser_collection' => 'browser', 'device_collection' => 'device', 'os_collection' => 'os'] as $flag => $dimension) {
+            $stmt = $db->prepare('SELECT COUNT(*) FROM dimensions_daily WHERE dimension = :dimension');
+            $stmt->execute([':dimension' => $dimension]);
+            if (empty($config[$flag]) && (int) $stmt->fetchColumn() > 0) $unexpected[] = $dimension . ' aggregate data exists while collection is disabled';
+        }
+        $stmt = $db->query("SELECT COUNT(*) FROM dimensions_daily WHERE dimension NOT IN ('browser','device','os')");
+        if ((int) $stmt->fetchColumn() > 0) $unexpected[] = 'unsupported dimension data exists';
+    }
+    if (tableExists($db, 'privacy_configuration_history')) {
+        $columns = $db->query('PRAGMA table_info(privacy_configuration_history)')->fetchAll();
+        foreach ($columns as $column) if (!in_array(strtolower((string) $column['name']), ['timestamp','profile','effective_configuration_json','configuration_hash','application_version','schema_version'], true)) $unexpected[] = 'privacy_configuration_history.' . $column['name'];
+    } else $unexpected[] = 'missing table privacy_configuration_history';
+    return ['status' => $unexpected ? 'FAIL' : 'PASS', 'tables' => $tables, 'unexpected' => $unexpected];
+}
+
+function privacySelfTest(PDO $db): array
+{
+    $config = effectivePrivacyConfig($db);
+    $schema = schemaAudit($db, strtoupper($config['profile']), $config);
+    $checks = [];
+    $checks[] = ['name' => 'Effective privacy configuration loaded', 'status' => 'PASS'];
+    foreach (['country_collection','referrer_collection','browser_collection','device_collection','os_collection'] as $key) {
+        $checks[] = ['name' => str_replace('_collection', '', $key) . ' collection ' . ($config[$key] ? 'enabled by administrator' : 'disabled'), 'status' => 'PASS'];
+        try { $raw = setting($db, $key, '0'); $valid = in_array($raw, ['0','1'], true); }
+        catch (Throwable) { $valid = false; }
+        if (!$valid) $checks[] = ['name' => $key . ' configuration invalid; effective collection fails closed', 'status' => 'WARN'];
+    }
+    foreach (['cookies','local_storage','session_storage','indexeddb','visitor_id','session_id','fingerprinting','cross_site_tracking','event_collection','query_string_collection','third_party_analytics','user_agent_collection','screen_dimensions','language_collection','custom_parameters'] as $key) {
+        $checks[] = ['name' => $key . ' disabled', 'status' => $config[$key] ? 'FAIL' : 'PASS'];
+    }
+    try { $rawRetention = setting($db, 'retention_days', '180'); $validRetention = in_array($rawRetention, ['30','90','180','365'], true); }
+    catch (Throwable) { $validRetention = false; }
+    if (!$validRetention) $checks[] = ['name' => 'Invalid retention configuration; safe 180-day default is effective', 'status' => 'WARN'];
+    try { $rawBots = setting($db, 'bot_patterns', ''); $validBots = strlen($rawBots) <= 2000 && count(array_filter(explode("\n", $rawBots), static fn($line) => strlen(trim($line)) > 200)) === 0; }
+    catch (Throwable) { $validBots = false; }
+    if (!$validBots) $checks[] = ['name' => 'Invalid bot filter configuration; oversized patterns are ignored', 'status' => 'WARN'];
+    $checks[] = ['name' => 'Aggregate schema audit', 'status' => $schema['status']];
+    $checks[] = ['name' => 'IP address not in Barelytics schema', 'status' => $schema['status']];
+    $checks[] = ['name' => 'Retention period configured', 'status' => in_array($config['retention_days'], [30,90,180,365], true) ? 'PASS' : 'FAIL'];
+    $runtimeFiles = [dirname(__DIR__) . '/track.js', dirname(__DIR__) . '/track.php', __FILE__];
+    $runtimeCode = array_map(static fn($file) => is_file($file) ? (string) file_get_contents($file) : '', $runtimeFiles);
+    $runtimeAvailable = !in_array('', $runtimeCode, true);
+    $remoteEndpoint = false;
+    $remoteClient = false;
+    foreach ($runtimeCode as $source) {
+        if (preg_match('~https?://~i', $source)) $remoteEndpoint = true;
+        if (preg_match('/\b(?:curl_init|fsockopen|pfsockopen)\s*\(/i', $source)) $remoteClient = true;
+    }
+    $localTracker = $runtimeAvailable && str_contains($runtimeCode[0], "new URL('track.php', current.src)")
+        && str_contains($runtimeCode[0], 'navigator.sendBeacon') && str_contains($runtimeCode[0], 'fetch(endpoint');
+    $checks[] = ['name' => 'Same-origin tracker endpoint', 'status' => $localTracker && !$remoteEndpoint ? 'PASS' : 'FAIL'];
+    $checks[] = ['name' => 'No third-party analytics or enrichment client in runtime sources', 'status' => $runtimeAvailable && !$remoteEndpoint && !$remoteClient ? 'PASS' : 'FAIL'];
+    return ['checks' => $checks, 'result' => in_array('FAIL', array_column($checks, 'status'), true) ? 'FAIL' : (in_array('WARN', array_column($checks, 'status'), true) ? 'WARN' : 'PASS'), 'schema' => $schema];
 }
 
 function isHttpsRequest(): bool
@@ -315,7 +496,7 @@ function runSelfTest(PDO $db): bool
 /** A bounded 1,000-row retention batch, safe to resume on a later request. */
 function cleanRetentionBatch(PDO $db, ?int $retention = null, int $limit = 1000): bool
 {
-    $retention ??= (int) setting($db, 'retention_days', '180');
+    $retention ??= effectivePrivacyConfig($db)['retention_days'];
     $retention = max(30, min(365, $retention));
     $limit = max(1, min(1000, $limit));
     $cutoff = gmdate('Y-m-d', time() - $retention * 86400);
@@ -331,7 +512,15 @@ function cleanRetentionBatch(PDO $db, ?int $retention = null, int $limit = 1000)
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
         $referrerCount = $stmt->rowCount();
-        $complete = $pageCount < $limit && $referrerCount < $limit;
+        $dimensionCount = 0;
+        if (tableExists($db, 'dimensions_daily')) {
+            $stmt = $db->prepare('DELETE FROM dimensions_daily WHERE rowid IN (SELECT rowid FROM dimensions_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)');
+            $stmt->bindValue(':cutoff', $cutoff, PDO::PARAM_STR);
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            $dimensionCount = $stmt->rowCount();
+        }
+        $complete = $pageCount < $limit && $referrerCount < $limit && $dimensionCount < $limit;
         setSetting($db, 'last_cleanup_at', gmdate('Y-m-d H:i:s'));
         $db->commit();
         return $complete;
@@ -359,7 +548,7 @@ function requestCountry(): string
     return is_string($value) && preg_match('/^[A-Za-z]{2}$/', $value) ? strtoupper($value) : 'XX';
 }
 
-function recordPageview(PDO $db, string $path, string $country, ?string $host): void
+function recordPageview(PDO $db, string $path, string $country = 'XX', ?string $host = null, array $dimensions = []): void
 {
     $db->beginTransaction();
     try {
@@ -368,6 +557,12 @@ function recordPageview(PDO $db, string $path, string $country, ?string $host): 
         if ($host !== null) {
             $stmt = $db->prepare('INSERT INTO referrers_daily (day, path, referrer_host, views) VALUES (:day, :path, :host, 1) ON CONFLICT(day, path, referrer_host) DO UPDATE SET views = views + 1');
             $stmt->execute([':day' => gmdate('Y-m-d'), ':path' => $path, ':host' => $host]);
+        }
+        foreach ($dimensions as $dimension => $value) {
+            if (in_array($dimension, ['browser', 'device', 'os'], true) && is_string($value) && $value !== '') {
+                $stmt = $db->prepare('INSERT INTO dimensions_daily (day, path, dimension, value, views) VALUES (:day, :path, :dimension, :value, 1) ON CONFLICT(day, path, dimension, value) DO UPDATE SET views = views + 1');
+                $stmt->execute([':day' => gmdate('Y-m-d'), ':path' => $path, ':dimension' => $dimension, ':value' => $value]);
+            }
         }
         $db->commit();
     } catch (Throwable $e) {
@@ -379,13 +574,20 @@ function recordPageview(PDO $db, string $path, string $country, ?string $host): 
 function countRequest(PDO $db, string $path): bool
 {
     if (schemaVersion($db) !== CURRENT_SCHEMA_VERSION) return false;
-    $patterns = DEFAULT_BOT_PATTERNS;
-    $custom = setting($db, 'bot_patterns', '');
-    if ($custom !== '') $patterns = array_merge($patterns, array_filter(array_map('trim', explode("\n", $custom))));
+    $config = effectivePrivacyConfig($db);
+    if (pathIsExcluded($path, $config['path_exclusions'])) return false;
+    $patterns = array_merge(DEFAULT_BOT_PATTERNS, $config['bot_patterns']);
     if (isBot((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), $patterns)) return false;
-    $country = setting($db, 'country_collection', '1') === '1' ? requestCountry() : 'XX';
-    $host = setting($db, 'referrer_collection', '0') === '1' ? referrerHost((string) ($_SERVER['HTTP_REFERER'] ?? '')) : null;
-    recordPageview($db, $path, $country, $host);
+    $country = $config['country_collection'] ? requestCountry() : 'XX';
+    $host = $config['referrer_collection'] ? referrerHost((string) ($_SERVER['HTTP_REFERER'] ?? '')) : null;
+    $dimensions = [];
+    if ($config['browser_collection'] || $config['device_collection'] || $config['os_collection']) {
+        $ua = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
+        if ($config['browser_collection']) $dimensions['browser'] = str_contains($ua, 'Firefox/') ? 'Firefox' : ((str_contains($ua, 'Edg/') || str_contains($ua, 'Edge/')) ? 'Edge' : ((str_contains($ua, 'Chrome/')) ? 'Chrome' : ((str_contains($ua, 'Safari/')) ? 'Safari' : 'Other')));
+        if ($config['os_collection']) $dimensions['os'] = stripos($ua, 'Windows') !== false ? 'Windows' : (stripos($ua, 'Android') !== false ? 'Android' : (stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false ? 'iOS' : (stripos($ua, 'Mac OS') !== false ? 'macOS' : (stripos($ua, 'Linux') !== false ? 'Linux' : 'Other'))));
+        if ($config['device_collection']) $dimensions['device'] = stripos($ua, 'Tablet') !== false || stripos($ua, 'iPad') !== false ? 'tablet' : (stripos($ua, 'Mobile') !== false || stripos($ua, 'Android') !== false || stripos($ua, 'iPhone') !== false ? 'mobile' : 'desktop');
+    }
+    recordPageview($db, $path, $country, $host, $dimensions);
     return true;
 }
 

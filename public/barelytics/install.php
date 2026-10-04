@@ -31,6 +31,7 @@ use function Barelytics\verifyResetToken;
 use function Barelytics\startAdminSession;
 use function Barelytics\webrootStatus;
 use const Barelytics\CURRENT_SCHEMA_VERSION;
+use const Barelytics\APPLICATION_VERSION;
 use const Barelytics\SUPPORTED_PHP_MAX;
 use const Barelytics\SUPPORTED_PHP_MIN;
 
@@ -163,7 +164,7 @@ if ($method === 'POST') {
             if (\Barelytics\setting($db, 'setup_complete', '0') === '1') throw new RuntimeException('Setup has already completed.');
             setSetting($db, 'admin_password_hash', password_hash((string) $_POST['password'], $algorithm));
             setSetting($db, 'setup_complete', '1');
-            setSetting($db, 'application_version', '1.0.0');
+            setSetting($db, 'application_version', APPLICATION_VERSION);
             setSetting($db, 'last_migration_at', gmdate('Y-m-d H:i:s'));
             $tokenPath = setupTokenPath();
             if (is_file($tokenPath)) @unlink($tokenPath);
