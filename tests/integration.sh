@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+report_failure() {
+  local status=$?
+  printf 'HTTP integration check failed at tests/integration.sh:%s (exit %s)\n' "${BASH_LINENO[0]}" "$status" >&2
+  exit "$status"
+}
+trap report_failure ERR
+
 root="$(cd "$(dirname "$0")/.." && pwd)"
 if ! php -r 'exit(in_array("sqlite", PDO::getAvailableDrivers(), true) ? 0 : 1);'; then
   echo 'HTTP integration checks skipped: PDO SQLite is unavailable.'
