@@ -311,7 +311,7 @@ module Barelytics
       end
       if env['REQUEST_METHOD'] == 'GET' && suffix.start_with?('/admin-ui/')
         name = suffix.split('/').last
-        return json(404, nil, 'not_found', 'Resource not found.') unless %w[app.js admin.css config.js].include?(name)
+        return json(404, nil, 'not_found', 'Resource not found.') unless %w[app.js admin.css config.js brand-mark.png].include?(name)
         return asset(name)
       end
       if suffix.start_with?('/api/')
@@ -349,7 +349,7 @@ module Barelytics
       else
         File.binread(File.join(__dir__, 'barelytics', 'admin-ui', name))
       end
-      type = name.end_with?('.html') ? 'text/html; charset=utf-8' : name.end_with?('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8'
+      type = name.end_with?('.html') ? 'text/html; charset=utf-8' : name.end_with?('.css') ? 'text/css; charset=utf-8' : name.end_with?('.png') ? 'image/png' : 'text/javascript; charset=utf-8'
       [200, headers('Content-Type' => type), [body]]
     rescue Errno::ENOENT
       json(503, nil, 'ui_unavailable', 'Administration UI is unavailable.')

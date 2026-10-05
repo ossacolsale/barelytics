@@ -1,5 +1,7 @@
 # Barelytics
 
+<p><img src="public/barelytics/admin-ui/brand-mark.png" alt="Barelytics logo" width="160"></p>
+
 > First-party analytics that counts pages without following people.
 
 Barelytics provides native analytics and administration for PHP, Node.js, Python, .NET, Java, and Ruby, with a standalone PHP mode for FTP/shared-hosting deployments. It writes daily page-view aggregates to local SQLite storage. Strict Mode is on by default: Barelytics stores a normalized page path, UTC day, and count; it does not create a visitor identifier.

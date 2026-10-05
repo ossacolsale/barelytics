@@ -98,6 +98,9 @@ using (var webStore = new BarelyticsStore(new BarelyticsOptions(webData)))
     if ((await client.GetAsync("/barelytics/admin")).StatusCode != System.Net.HttpStatusCode.Redirect) throw new Exception("Admin base path did not redirect to its slash-normalized UI route.");
     var uiResponse = await client.GetAsync("/barelytics/admin/");
     if (uiResponse.StatusCode != System.Net.HttpStatusCode.OK || !(await uiResponse.Content.ReadAsStringAsync()).Contains("Analytics administration")) throw new Exception("Shared admin UI was inaccessible.");
+    var logoResponse = await client.GetAsync("/barelytics/admin/admin-ui/brand-mark.png");
+    var logoBytes = await logoResponse.Content.ReadAsByteArrayAsync();
+    if (logoResponse.StatusCode != System.Net.HttpStatusCode.OK || logoResponse.Content.Headers.ContentType?.MediaType != "image/png" || !logoBytes.AsSpan().StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })) throw new Exception("Shared admin brand mark was inaccessible.");
     var tokenResponse = await client.GetAsync("/barelytics/admin/api/session");
     using var tokenJson = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
     var requestToken = tokenJson.RootElement.GetProperty("data").GetProperty("csrf").GetString()!;

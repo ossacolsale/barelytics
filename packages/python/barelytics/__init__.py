@@ -372,13 +372,13 @@ def create_wsgi_app(analytics: Barelytics, *, authorize: Callable[[dict[str, Any
                 return _wsgi(start_response, "200 OK", content, [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")])
             if method == "GET" and suffix.startswith("/admin-ui/"):
                 name = suffix.rsplit("/", 1)[-1]
-                if name not in ("app.js", "admin.css", "config.js"): return _wsgi(start_response, "404 Not Found", b"")
+                if name not in ("app.js", "admin.css", "config.js", "brand-mark.png"): return _wsgi(start_response, "404 Not Found", b"")
                 ui_root = Path(__file__).resolve().parent / "admin-ui"
                 if not ui_root.is_dir(): ui_root = Path(__file__).resolve().parents[3] / "public/barelytics/admin-ui"
                 try: content = (ui_root / name).read_bytes()
                 except OSError: return _wsgi(start_response, "503 Service Unavailable", b"")
                 if name == "config.js": content = b'window.BARELYTICS_ADMIN_CONFIG = { apiBase: "api/" };'
-                mime = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8"
+                mime = "text/javascript; charset=utf-8" if name.endswith(".js") else "image/png" if name.endswith(".png") else "text/css; charset=utf-8"
                 return _wsgi(start_response, "200 OK", content, [("Content-Type", mime), ("Cache-Control", "no-store")])
             if suffix.startswith("/api/"):
                 resource = suffix[len("/api/"):].strip("/")

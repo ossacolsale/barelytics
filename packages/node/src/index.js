@@ -305,7 +305,7 @@ export function createAdminHandler(analytics, { authorize, verifyCsrf, csrfToken
       const originalPath = request.originalUrl ? new URL(request.originalUrl, 'http://barelytics.local').pathname : pathname;
       if (request.method === 'GET' && pathname === '/' && originalPath.endsWith('/admin')) { response.writeHead(308, { Location: `${originalPath}/` }).end(); return; }
       if (request.method === 'GET' && (pathname.endsWith('/admin') || pathname.endsWith('/admin/'))) { response.writeHead(308, { Location: `${request.url.replace(/\?.*$/, '')}/` }).end(); return; }
-      const assetName = pathname.endsWith('/admin-ui/app.js') ? 'app.js' : pathname.endsWith('/admin-ui/admin.css') ? 'admin.css' : pathname.endsWith('/admin-ui/config.js') ? 'config.js' : null;
+      const assetName = pathname.endsWith('/admin-ui/app.js') ? 'app.js' : pathname.endsWith('/admin-ui/admin.css') ? 'admin.css' : pathname.endsWith('/admin-ui/config.js') ? 'config.js' : pathname.endsWith('/admin-ui/brand-mark.png') ? 'brand-mark.png' : null;
       if (request.method === 'GET' && (pathname === '/' || pathname.endsWith('/admin/') || pathname.endsWith('/admin/index.html'))) {
         const bytes = asset('index.html');
         if (!bytes) { reply(response, 503, { ok: false, data: null, error: { code: 'unavailable', message: 'Administration UI is unavailable.' } }); return; }
@@ -314,8 +314,8 @@ export function createAdminHandler(analytics, { authorize, verifyCsrf, csrfToken
       if (request.method === 'GET' && assetName) {
         const bytes = asset(assetName);
         if (!bytes) { reply(response, 404, { ok: false, data: null, error: { code: 'not_found', message: 'Resource not found.' } }); return; }
-        const type = assetName.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8';
-        reply(response, 200, assetName === 'config.js' ? 'window.BARELYTICS_ADMIN_CONFIG = { apiBase: "api/" };' : bytes.toString('utf8'), type); return;
+        const type = assetName.endsWith('.js') ? 'text/javascript; charset=utf-8' : assetName.endsWith('.png') ? 'image/png' : 'text/css; charset=utf-8';
+        reply(response, 200, assetName === 'config.js' ? 'window.BARELYTICS_ADMIN_CONFIG = { apiBase: "api/" };' : assetName.endsWith('.png') ? bytes : bytes.toString('utf8'), type); return;
       }
       const legacyPost = request.method === 'POST' && !pathname.includes('/api/');
       if (!pathname.includes('/api/') && !legacyPost) { reply(response, 404, { ok: false, data: null, error: { code: 'not_found', message: 'Resource not found.' } }); return; }

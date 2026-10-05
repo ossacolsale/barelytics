@@ -242,7 +242,7 @@ $metricPageCount = $view === 'page' ? count($timeline) : $activePages;
 $metricAverage = $view === 'page' ? ($period > 0 ? round($pageTotal / $period, 1) : 0) : $dailyAverage;
 ?><!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Barelytics administration</title><link rel="stylesheet" href="admin.css"></head>
-<body><main class="wrap"><header><p class="brand">BARELYTICS</p><h1>Analytics administration</h1></header>
+<body><main class="wrap"><header><p class="brand"><img src="admin-ui/brand-mark.png" width="72" height="50" alt="Barelytics"></p><h1>Analytics administration</h1></header>
 <?php if ($error !== ''): ?><p class="notice error"><?= escape($error) ?></p><?php endif; ?>
 <?php if ($message !== ''): ?><p class="notice"><?= escape($message) ?></p><?php endif; ?>
 <?php if (!$authenticated): ?>

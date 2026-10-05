@@ -82,6 +82,10 @@ class BarelyticsTest < Minitest::Test
       status, _headers, body = rack_request(app, 'GET', '/barelytics/admin/', extra: { 'HTTP_X_ADMIN' => 'yes' })
       assert_equal 200, status
       assert_includes body.join, 'Analytics administration'
+      status, headers, body = rack_request(app, 'GET', '/barelytics/admin/admin-ui/brand-mark.png', extra: { 'HTTP_X_ADMIN' => 'yes' })
+      assert_equal 200, status
+      assert_equal 'image/png', headers['Content-Type']
+      assert body.join.start_with?("\x89PNG\r\n\x1a\n".b)
       status, = rack_request(app, 'GET', '/barelytics/admin/api/session')
       assert_equal 403, status
       status, = rack_request(app, 'POST', '/barelytics/admin/api/strict', body: { csrf: 'wrong' }.to_json, extra: { 'HTTP_X_ADMIN' => 'yes' })

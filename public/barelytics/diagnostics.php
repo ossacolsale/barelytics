@@ -97,7 +97,7 @@ if ($db instanceof PDO) {
 $csrf = csrfToken();
 ?><!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Diagnostics · Barelytics</title><link rel="stylesheet" href="admin.css"></head>
-<body><main class="wrap"><header><p class="brand">BARELYTICS</p><h1>Database diagnostics</h1><p><a href="admin.php">Back to administration</a></p></header>
+<body><main class="wrap"><header><p class="brand"><img src="admin-ui/brand-mark.png" width="72" height="50" alt="Barelytics"></p><h1>Database diagnostics</h1><p><a href="admin.php">Back to administration</a></p></header>
 <?php if ($error !== null): ?><p class="notice error">Diagnostics could not connect: <?= escape($error) ?></p><?php endif; ?>
 <?php if ($checks): ?><section class="card"><h2>Read-only diagnostics</h2><p>These checks read the installed configuration and storage status. They do not run migrations or change database settings.</p><table><tbody><?php foreach ($checks as [$label, $value]): ?><tr><th><?= escape($label) ?></th><td><?= escape((string) $value) ?></td></tr><?php endforeach; ?></tbody></table></section>
 <section class="card"><h2>Explicit database probe</h2><p>This administrator-triggered test creates a uniquely named temporary table, tests transactional create/read/delete operations, commits, then drops the table. WAL status is checked separately.</p><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="database_probe"><button>Run database probe</button></form>

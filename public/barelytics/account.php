@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $csrf = csrfToken();
 ?><!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Account · Barelytics</title><link rel="stylesheet" href="admin.css"></head>
-<body><main class="wrap"><header><p class="brand">BARELYTICS</p><h1>Administrator account</h1><p><a href="admin.php">Back to administration</a></p></header>
+<body><main class="wrap"><header><p class="brand"><img src="admin-ui/brand-mark.png" width="72" height="50" alt="Barelytics"></p><h1>Administrator account</h1><p><a href="admin.php">Back to administration</a></p></header>
 <?php if ($error !== ''): ?><p class="notice error"><?= escape($error) ?></p><?php endif; ?>
 <?php if ($message !== ''): ?><p class="notice"><?= escape($message) ?></p><?php endif; ?>
 <section class="card"><h2>Change password</h2><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><label>Current password<input type="password" name="current_password" autocomplete="current-password" maxlength="1024" required></label><label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="12" maxlength="1024" required></label><label>Confirm new password<input type="password" name="confirmation" autocomplete="new-password" minlength="12" maxlength="1024" required></label><button>Change password</button></form></section>

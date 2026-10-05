@@ -100,6 +100,9 @@ test('admin handler enforces host authorization and CSRF before settings changes
     assert.equal((await dashboard.json()).data.active_pages, 0);
     const ui = await fetch(`${base}/` , { headers: { 'x-admin': 'yes' } });
     assert.match(await ui.text(), /Analytics administration/);
+    const logo = await fetch(`${base}/admin-ui/brand-mark.png`, { headers: { 'x-admin': 'yes' } });
+    assert.equal(logo.headers.get('content-type'), 'image/png');
+    assert.equal(Buffer.from(await logo.arrayBuffer()).subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     assert.equal((await fetch(base, { method: 'POST', headers: { 'x-admin': 'yes', 'content-type': 'application/json' }, body: JSON.stringify({ action: 'strict', csrf: 'invalid' }) })).status, 403);
     assert.equal((await fetch(base, { method: 'POST', headers: { 'x-admin': 'yes', 'content-type': 'application/json' }, body: JSON.stringify({ action: 'privacy', values: { country_collection: true }, confirmation: 'yes', csrf: 'valid-token' }) })).status, 204);
     assert.equal(analytics.audit().profile, 'extended');

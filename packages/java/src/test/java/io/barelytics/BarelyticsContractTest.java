@@ -14,6 +14,13 @@ import org.junit.jupiter.api.io.TempDir;
 class BarelyticsContractTest {
     @TempDir Path temp;
 
+    @Test void sharedAdminBrandMarkIsPackaged() throws Exception {
+        try(var image=BarelyticsAdminServlet.class.getResourceAsStream("/admin-ui/brand-mark.png")) {
+            assertNotNull(image);
+            assertArrayEquals(new byte[]{(byte)0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a}, image.readNBytes(8));
+        }
+    }
+
     @Test void sharedPathVectors() throws Exception {
         Path file=Path.of("../..","spec/test-vectors/path-normalization.json").toAbsolutePath().normalize();
         Pattern vector=Pattern.compile("\\{\\\"input\\\":\\\"((?:\\\\.|[^\\\"\\\\])*)\\\",\\\"expected\\\":(null|\\\"(?:\\\\.|[^\\\"])*\\\")");

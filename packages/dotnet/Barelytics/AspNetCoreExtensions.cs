@@ -50,7 +50,7 @@ public static class AspNetCoreExtensions
             var path = context.Request.Path.Value ?? pattern;
             return path.EndsWith('/') ? UiContent("index.html") : Results.Redirect(path + "/");
         });
-        group.MapGet("admin-ui/{asset}", (string asset) => asset is "app.js" or "admin.css" or "config.js" ? UiContent(asset) : Results.NotFound());
+        group.MapGet("admin-ui/{asset}", (string asset) => asset is "app.js" or "admin.css" or "config.js" or "brand-mark.png" ? UiContent(asset) : Results.NotFound());
         group.MapGet("api/{resource}", (string resource, HttpContext context) =>
         {
             if (resource == "session")
@@ -101,6 +101,11 @@ public static class AspNetCoreExtensions
         if (resource is null) return Error(StatusCodes.Status503ServiceUnavailable, "ui_unavailable", "Administration UI is unavailable.");
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource);
         if (stream is null) return Error(StatusCodes.Status503ServiceUnavailable, "ui_unavailable", "Administration UI is unavailable.");
+        if (name == "brand-mark.png")
+        {
+            using var image = new MemoryStream(); stream.CopyTo(image);
+            return Results.Bytes(image.ToArray(), "image/png");
+        }
         using var reader = new StreamReader(stream); var content = reader.ReadToEnd();
         if (name == "config.js") content = "window.BARELYTICS_ADMIN_CONFIG = { apiBase: 'api/' };";
         var type = name.EndsWith(".js", StringComparison.Ordinal) ? "text/javascript; charset=utf-8" : name.EndsWith(".css", StringComparison.Ordinal) ? "text/css; charset=utf-8" : "text/html; charset=utf-8";

@@ -13,6 +13,7 @@ All notable changes to Barelytics are documented here.
 
 ### Added
 
+- Official Barelytics brand mark on the README and shared administration pages across supported runtimes.
 - Manual, tag-based GitHub Release reruns that rebuild the tag's exact commit, safely resume draft releases, and test release archive validation in CI.
 - FTP/SFTP-deployable PHP + SQLite runtime package with browser environment checks and first-admin setup.
 - One-time hashed bootstrap and recovery token files, permanent setup lock, and browser password recovery.
