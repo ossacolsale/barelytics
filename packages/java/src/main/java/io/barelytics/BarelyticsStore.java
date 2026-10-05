@@ -236,7 +236,7 @@ public final class BarelyticsStore implements AutoCloseable {
         return new PrivacyConfiguration(f.get(DIMENSIONS.get(0)),f.get(DIMENSIONS.get(1)),f.get(DIMENSIONS.get(2)),f.get(DIMENSIONS.get(3)),f.get(DIMENSIONS.get(4)),retention,profile,exclusions,bots);
     }
 
-    private void recordHistory() throws SQLException { PrivacyConfiguration c=configuration();String json=c.toJson();upsert("INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)",OffsetDateTime.now(ZoneOffset.UTC).toString(),c.profile(),json,fingerprint(c),"1.0.0",SCHEMA_VERSION); }
+    private void recordHistory() throws SQLException { PrivacyConfiguration c=configuration();String json=c.toJson();upsert("INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)",OffsetDateTime.now(ZoneOffset.UTC).toString(),c.profile(),json,fingerprint(c),"1.1.0",SCHEMA_VERSION); }
     private String fingerprint(PrivacyConfiguration c) throws SQLException {try{String json="{\"contract_version\":"+CONTRACT_VERSION+",\"schema_version\":"+SCHEMA_VERSION+",\"configuration\":"+c.toJson()+"}";return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new SQLException(e);}}
     private String get(String key,String fallback) throws SQLException {try(PreparedStatement p=connection.prepareStatement("SELECT value FROM settings WHERE key=?")){p.setString(1,key);try(ResultSet r=p.executeQuery()){return r.next()?r.getString(1):fallback;}}}
     private void set(String key,String value) throws SQLException {upsert("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",key,value);}

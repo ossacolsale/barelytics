@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Barelytics
  * Description: Self-hosted, privacy-first aggregate analytics using the Barelytics PHP core.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Requires at least: 6.4
  * Requires PHP: 8.2
  * License: MIT

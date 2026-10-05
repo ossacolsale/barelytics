@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    barelytics (1.0.0)
+    barelytics (1.1.0)
       sqlite3 (>= 2.0, < 3)
 
 GEM

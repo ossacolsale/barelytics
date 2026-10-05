@@ -277,7 +277,7 @@ public sealed class BarelyticsStore : IDisposable
     private void RecordHistory(SqliteTransaction tx)
     {
         var config = Configuration(tx); var json = JsonSerializer.Serialize(config); var fingerprint = Fingerprint(config);
-        Execute(tx, "INSERT INTO privacy_configuration_history VALUES ($at,$profile,$config,$hash,'1.0.0',$schema)", ("$at", DateTime.UtcNow.ToString("O")), ("$profile", config.Profile), ("$config", json), ("$hash", fingerprint), ("$schema", SchemaVersion));
+        Execute(tx, "INSERT INTO privacy_configuration_history VALUES ($at,$profile,$config,$hash,'1.1.0',$schema)", ("$at", DateTime.UtcNow.ToString("O")), ("$profile", config.Profile), ("$config", json), ("$hash", fingerprint), ("$schema", SchemaVersion));
     }
     private string Get(string key, string fallback) => ToSetting(Scalar("SELECT value FROM settings WHERE key=$key", ("$key", key)), fallback);
     private string Get(SqliteTransaction? tx, string key, string fallback) => ToSetting(tx is null ? Scalar("SELECT value FROM settings WHERE key=$key", ("$key", key)) : Scalar(tx, "SELECT value FROM settings WHERE key=$key", ("$key", key)), fallback);

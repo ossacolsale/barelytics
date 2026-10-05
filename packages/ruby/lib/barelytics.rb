@@ -279,7 +279,7 @@ module Barelytics
     def fingerprint(config) = Digest::SHA256.hexdigest(JSON.generate({ contract_version: CONTRACT_VERSION, schema_version: SCHEMA_VERSION, configuration: config }))
     def record_history
       config = configuration
-      @db.execute('INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)', [Time.now.utc.iso8601, config[:profile], JSON.generate(config), fingerprint(config), '1.0.0', SCHEMA_VERSION])
+      @db.execute('INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)', [Time.now.utc.iso8601, config[:profile], JSON.generate(config), fingerprint(config), '1.1.0', SCHEMA_VERSION])
     end
   end
 

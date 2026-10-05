@@ -199,7 +199,7 @@ class Barelytics:
         config = self._config()
         serialized = json.dumps(config, sort_keys=True, separators=(",", ":"))
         fingerprint = sha256(json.dumps({"contract_version": CONTRACT_VERSION, "schema_version": SCHEMA_VERSION, "configuration": config}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        self.db.execute("INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)", (_now(), config["profile"], serialized, fingerprint, "1.0.0", SCHEMA_VERSION))
+        self.db.execute("INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)", (_now(), config["profile"], serialized, fingerprint, "1.1.0", SCHEMA_VERSION))
 
     def dashboard(self, period_days: int = 30) -> dict[str, Any]:
         period = period_days if period_days in _VALID_RETENTION else 30
