@@ -1,27 +1,21 @@
-# Repository instructions
+# Agent instructions
 
-## After every code change
+## Working rules
 
-- Treat tests and verification as required for every request that changes application, test, build, or CI code, even when the request does not mention tests.
-- Before finishing, inspect the complete diff and run the checks relevant to the change. For runtime PHP changes, run the full project checks listed in `CONTRIBUTING.md`: PHP syntax checks, `php tests/run.php`, `bash tests/integration.sh`, and `git diff --check`.
-- Add or update regression tests for the behavior being changed. Run the complete suite after the final code edit, not only before it.
-- When a check cannot run, make a reasonable attempt to provide its prerequisites in the local environment. If it remains unavailable, state exactly which check was skipped or blocked and why; never describe a skipped check as passing or imply the change is fully verified.
+- Follow the user's request and the applicable instruction hierarchy. Inspect Git status and relevant files before editing; preserve unrelated work.
+- Make the smallest complete change. Do not use documentation work as a reason to refactor application behavior or add process without a concrete benefit.
+- Use progressive disclosure: for a narrow task, read its target files and applicable local instructions. For cross-cutting, architectural, ambiguous, risky, or resumed work, use [`llms.txt`](llms.txt) and the relevant entries in [`docs/README.md`](docs/README.md) or [`spec/README.md`](spec/README.md). Do not read unrelated documentation systematically.
+- For resumed or unfinished work, verify relevant claims against Git, code, and available evidence. Keep handoffs limited to active work; do not create a history log.
+- Protect secrets, privacy, stored analytics data, and existing compatibility guarantees. Do not add identifiers, tracking, or third-party telemetry. Destructive or external actions, publication, deployment, and material-cost actions require explicit authorization.
 
-## GitHub Actions CI
+## Verification and documentation
 
-- Inspect the applicable files under `.github/workflows/` for every code change. Confirm that the workflow triggers on the relevant branch and paths, uses supported runtime versions, installs required extensions and tools, and runs the checks that cover the changed behavior.
-- Keep local verification aligned with CI, including PHP versions and extensions such as PDO SQLite. If local and CI environments differ, identify the difference and verify against the closest available setup.
-- Review workflow syntax and any affected cache keys, permissions, secrets, service containers, and artifact dependencies when changing CI configuration.
-- Do not claim that remote GitHub Actions passed unless the relevant run was actually inspected. If GitHub status is unavailable, report that limitation separately from local test results.
+- Add or update regression coverage for behavior changes. For PHP runtime changes, follow the full checks in [`CONTRIBUTING.md`](CONTRIBUTING.md), inspect applicable GitHub Actions workflows, and review the complete final diff. Report checks that could not run; never imply they passed.
+- For documentation-only changes, validate affected links and instructions and run `git diff --check`.
+- Update authoritative documentation when behavior or durable project guidance changes. Update `CHANGELOG.md` for user-visible, compatibility, security, or operational changes, following its existing release policy; internal documentation maintenance alone does not need a release entry.
+- Code and tests describe current implementation; approved contracts in `spec/` describe intended behavior. Investigate and report disagreements instead of silently discarding either source.
+- Do not commit, push, publish, deploy, or otherwise change external services unless explicitly requested.
 
-## Documentation and changelog
+## Incomplete work
 
-- Review all relevant documentation after each code change. Update the README, installation/deployment guides, configuration, privacy, security, or API guidance when the behavior or instructions they describe change.
-- Update `CHANGELOG.md` for user-visible features, fixes, compatibility changes, security changes, and operational changes. Add entries under `Unreleased` unless the release version is explicitly being prepared.
-- Keep documentation consistent with the implementation and tests. Do not edit unrelated documentation merely to create activity; if no documentation or changelog change is warranted, make that judgment explicitly during review.
-
-## Completion report
-
-- Summarize the implementation and link the important changed files.
-- List the checks that ran and their results, identify any skipped checks, and state whether remote GitHub Actions was inspected.
-- Mention documentation and changelog updates, or note briefly when neither needed a change.
+For significant unfinished work, report its verified status, blocker or open decision, next action, and essential references. Do not leave completed work marked pending.

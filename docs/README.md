@@ -1,5 +1,7 @@
 # Documentation
 
+Use this index to open only the guide relevant to the current task. It covers product and operational documentation; the runtime-neutral behavior contracts are indexed separately in [`spec/README.md`](../spec/README.md).
+
 ## Install and upgrade
 
 - [FTP/SFTP installation](../INSTALL.md)
@@ -19,7 +21,12 @@
 
 - [Framework recipes](integrations/README.md)
 - [WordPress plugin and ZIP installation](../integrations/wordpress/README.md)
-- [Runtime-neutral contract and vectors](../spec/)
+- [Runtime-neutral behavior contracts and test vectors](../spec/README.md)
+
+## Contribute
+
+- [Development and verification](../CONTRIBUTING.md)
+- [Project changes](../CHANGELOG.md)
 
 ## Understand the product
 

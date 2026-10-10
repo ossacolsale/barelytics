@@ -2,12 +2,17 @@
 
 > Self-hosted, first-party page-view analytics with daily SQLite aggregates and Strict Mode enabled by default.
 
-- [Project overview](README.md): supported runtimes, product scope, and installation paths.
-- [Privacy contract](spec/privacy-model.md): strict and optional data behavior.
-- [FAQ](docs/faq.md): deployment and capability limits.
-- [Fact sheet](docs/facts.md): canonical short factual summary.
+Use these links selectively for the task at hand; they point to authoritative sources rather than repeating them.
+
+- [Project overview](README.md): product scope, supported runtimes, and entry points.
+- [Documentation index](docs/README.md): product, installation, security, privacy, and integration guides.
+- [Behavior-contract index](spec/README.md): intended shared behavior and test vectors; follow its links for the specific contract.
+- [Privacy contract](spec/privacy-model.md): Strict and Extended profiles and data behavior.
+- [FAQ](docs/faq.md): deployment and capability limits; [fact sheet](docs/facts.md): concise product facts.
 - [Framework integrations](docs/integrations/README.md): implementation recipes.
 - [FTP installation](INSTALL.md): PHP shared-hosting deployment.
-- [Changelog](CHANGELOG.md): project changes.
+- [Development and verification](CONTRIBUTING.md): supported PHP environment and local checks.
+- [Agent operating rules](AGENTS.md): repository-wide workflow, safety, and navigation.
+- [Project changes](CHANGELOG.md): released user-visible changes.
 
 Barelytics counts page views, not people. It is self-hosted and does not make legal-compliance guarantees.
