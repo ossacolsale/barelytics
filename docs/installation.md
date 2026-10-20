@@ -10,6 +10,8 @@
 
 The installer checks PHP version, PDO, SQLite, data-directory write access, database read/write/delete, WAL/SHM sidecars, sessions, HTTPS, webroot placement, and setup state. It displays a hosting-control-panel action when a required extension is missing. Database diagnostics show a short sanitized error when a check fails; they do not show stack traces, credentials, tokens, or private storage paths.
 
+PHP 8.2 is in upstream security-only support through 2026-12-31 ([PHP supported versions](https://www.php.net/supported-versions.php)). Production deployments should move to a PHP branch with upstream security support. Barelytics retains PHP 8.2 in its CI and release matrices through that date; from 2027-01-01 the planned minimum is PHP 8.3. The first release on or after the cutoff must update the runtime guards, both matrices, and installation requirements together. The upper runtime guard must continue to match the highest PHP version tested by those matrices.
+
 ## Upload and initialize
 
 1. Download the repository archive and extract it on your computer.

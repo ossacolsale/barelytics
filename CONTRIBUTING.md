@@ -4,6 +4,8 @@
 
 Barelytics supports PHP 8.2–8.5 with PDO SQLite and JSON enabled. There are no Composer dependencies. Run the dependency-free checks with:
 
+PHP 8.2 is in upstream security-only support through 2026-12-31. The first release on or after 2027-01-01 is scheduled to raise the minimum to PHP 8.3; update the runtime guards and both CI/release matrices in the same change, and keep the upper guard aligned with the tested matrix.
+
 ```sh
 php tests/run.php
 bash tests/integration.sh

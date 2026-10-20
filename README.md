@@ -22,6 +22,8 @@ By default, Barelytics stores aggregate page views and normalized paths. It does
 | Ruby | Ruby 3.3, 3.4, and 4.0 | Yes | Yes | No |
 | WordPress | Plugin ZIP assembled from the PHP reference core | Yes | WordPress administrator role | No |
 
+PHP 8.2 receives security fixes only, and upstream support ends on 2026-12-31. Production deployments should move to a PHP branch with upstream security support. Barelytics keeps PHP 8.2 in its test and release matrices through that date; beginning 2027-01-01, the minimum supported PHP version is scheduled to become 8.3. The first release on or after that date must remove PHP 8.2 from both matrices and raise the runtime guards and installation guidance together. The tested upper bound remains 8.5 until another PHP version is added to the matrices.
+
 The native runtimes share one dependency-free HTML/CSS/JavaScript administration UI and HTTP contract. Embedded adapters delegate identity, roles, sessions, and CSRF verification to the host application. PHP retains its standalone password/session mode for shared hosting; the WordPress adapter uses WordPress permissions and nonces.
 
 All runtimes use a local SQLite database; non-PHP integrations do not call a remote Barelytics service. Persistent storage is required. SQLite on ephemeral serverless or edge filesystems is not supported.

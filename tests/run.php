@@ -23,6 +23,41 @@ $assert = static function (bool $condition, string $message) use (&$checks): voi
 
 $assert(\Barelytics\SUPPORTED_PHP_MIN === 80200, 'supported PHP baseline excludes the end-of-life 8.1 branch');
 $assert(\Barelytics\SUPPORTED_PHP_MAX === 80599, 'supported PHP ceiling matches the CI matrix');
+$projectRoot = dirname(__DIR__);
+$installerSource = (string) file_get_contents($projectRoot . '/public/barelytics/install.php');
+$assert((bool) preg_match('/if \(PHP_VERSION_ID < (\d+) \|\| PHP_VERSION_ID > (\d+)\)/', $installerSource, $runtimeGuard)
+    && (int) $runtimeGuard[1] === \Barelytics\SUPPORTED_PHP_MIN
+    && (int) $runtimeGuard[2] === \Barelytics\SUPPORTED_PHP_MAX, 'installer runtime gate matches the supported PHP range');
+$assert(str_contains($installerSource, 'Barelytics supports PHP 8.2 through 8.5')
+    && str_contains($installerSource, 'Supported range is PHP 8.2 through 8.5'), 'installer messages match the supported PHP range');
+$ciWorkflow = (string) file_get_contents($projectRoot . '/.github/workflows/ci.yml');
+$releaseWorkflow = (string) file_get_contents($projectRoot . '/.github/workflows/release.yml');
+$phpMatrixVersions = static function (string $workflow): array {
+    if (!preg_match('/^\s+php: \[([^]]+)\]$/m', $workflow, $match)) return [];
+    preg_match_all("/'(8\.\d+)'/", $match[1], $versions);
+    return array_map(static function (string $version): int {
+        [$major, $minor] = array_map('intval', explode('.', $version));
+        return ($major * 10000) + ($minor * 100) + 99;
+    }, $versions[1]);
+};
+$expectedPhpMatrix = [80299, 80399, 80499, 80599];
+$assert($phpMatrixVersions($ciWorkflow) === $expectedPhpMatrix, 'CI PHP matrix matches the supported PHP range');
+$assert($phpMatrixVersions($releaseWorkflow) === $expectedPhpMatrix, 'release PHP matrix matches the supported PHP range');
+$runtimeDocs = [
+    'README.md' => '/PHP \| 8\.2–8\.5/',
+    'INSTALL.md' => '/PHP 8\.2–8\.5/',
+    'CONTRIBUTING.md' => '/PHP 8\.2–8\.5/',
+    'docs/installation.md' => '/PHP 8\.2 through 8\.5/',
+    'docs/deployment.md' => '/PHP range is 8\.2–8\.5/',
+    'docs/shared-hosting.md' => '/PHP 8\.2–8\.5/',
+    'docs/facts.md' => '/PHP 8\.2–8\.5/',
+];
+foreach ($runtimeDocs as $path => $pattern) {
+    $document = (string) file_get_contents($projectRoot . '/' . $path);
+    $assert(preg_match($pattern, $document) === 1, "{$path} documents the supported PHP range");
+}
+$lifecycleDocs = (string) file_get_contents($projectRoot . '/docs/installation.md');
+$assert(str_contains($lifecycleDocs, 'security-only support through 2026-12-31') && str_contains($lifecycleDocs, 'from 2027-01-01 the planned minimum is PHP 8.3'), 'PHP 8.2 cutoff and planned PHP 8.3 baseline are documented');
 $assert(normalizePath('/articles/example') === '/articles/example', 'normal page paths are accepted');
 $assert(normalizePath('/articles//example') === '/articles/example', 'repeated slashes are normalized');
 $assert(normalizePath('/users/123456/profile') === '/users/:id/profile', 'numeric record identifiers are collapsed');
