@@ -18,6 +18,12 @@ The source lives under `src/` and has Apache denial rules. Nginx PHP hosting mus
 
 The only runtime extensions are PDO SQLite, JSON, and sessions. The supported PHP range is 8.2–8.5. Barelytics has no daemon, worker, queue, Redis, MySQL, external analytics service, or geolocation API.
 
+### PHP security updates
+
+The PHP project disclosed two critical remote-code-execution vulnerabilities in web-serving PHP runtimes on 2026-10-21: CVE-2026-109618 and CVE-2026-109619. The fixed upstream builds are PHP 8.2.35, 8.3.36, 8.4.27, and 8.5.12 for their respective branches. Upgrade the runtime, or ask your OS/LTS or hosting vendor to confirm that both fixes have been backported. A version-string check cannot verify a vendor backport. These are PHP runtime issues, not evidence of a vulnerability in Barelytics application code. Updating is the only complete fix; temporary mitigations only reduce risk for specific paths. See [the PHP security policy](../SECURITY.md).
+
+PHP 8.2 remains supported by this project through 2026-12-31, when upstream security support ends. Move PHP 8.2 deployments to a supported branch before that date. Barelytics plans to raise its minimum to PHP 8.3 in the first release on or after 2027-01-01, updating the runtime gate and CI/release matrices together.
+
 Retention cleanup runs at most once every 24 hours. PHP-FPM deployments with `fastcgi_finish_request()` do a bounded batch after a tracking response. Other handlers run cleanup on an authenticated admin request. Each batch deletes at most 1,000 expired rows per aggregate table and can resume on a later day. Cron may be used as an optional optimization, never as a requirement.
 
 ## HTTPS and server rules

@@ -58,6 +58,25 @@ foreach ($runtimeDocs as $path => $pattern) {
 }
 $lifecycleDocs = (string) file_get_contents($projectRoot . '/docs/installation.md');
 $assert(str_contains($lifecycleDocs, 'security-only support through 2026-12-31') && str_contains($lifecycleDocs, 'from 2027-01-01 the planned minimum is PHP 8.3'), 'PHP 8.2 cutoff and planned PHP 8.3 baseline are documented');
+$phpSecurityDocs = [
+    'SECURITY.md',
+    'INSTALL.md',
+    'docs/deployment.md',
+    'docs/installation.md',
+    'docs/security.md',
+    'docs/shared-hosting.md',
+];
+foreach ($phpSecurityDocs as $path) {
+    $document = (string) file_get_contents($projectRoot . '/' . $path);
+    $assert(str_contains($document, 'CVE-2026-109618') && str_contains($document, 'CVE-2026-109619'), "{$path} names both 2026 PHP runtime advisories");
+    foreach (['8.2.35', '8.3.36', '8.4.27', '8.5.12'] as $fixedVersion) {
+        $assert(str_contains($document, $fixedVersion), "{$path} documents fixed PHP build {$fixedVersion}");
+    }
+    $assert(str_contains($document, '2026-10-21') && stripos($document, 'backport') !== false, "{$path} documents advisory date and vendor backport guidance");
+}
+$securityPolicy = (string) file_get_contents($projectRoot . '/SECURITY.md');
+$assert(str_contains($securityPolicy, 'not evidence of a vulnerability in Barelytics application code')
+    && str_contains($securityPolicy, 'only complete mitigation'), 'PHP advisories are distinguished from Barelytics code and updates are identified as the complete mitigation');
 $assert(normalizePath('/articles/example') === '/articles/example', 'normal page paths are accepted');
 $assert(normalizePath('/articles//example') === '/articles/example', 'repeated slashes are normalized');
 $assert(normalizePath('/users/123456/profile') === '/users/:id/profile', 'numeric record identifiers are collapsed');

@@ -6,6 +6,7 @@ All notable changes to Barelytics are documented here.
 
 ### Added
 
+- PHP deployment guidance for the 2026-10-21 critical runtime advisories, patched builds, verified vendor backports, and PHP 8.2's 2026-12-31 security-support cutoff.
 - Default fresh installs and upgrades to Strict privacy mode with optional dimensions disabled.
 - Add opt-in country, referrer-host, browser, device, and operating-system aggregates with private-path exclusions.
 - Add authenticated privacy audit, runtime self-tests, schema verification, SHA-256 configuration fingerprint, configuration history, and HTML/JSON report exports.

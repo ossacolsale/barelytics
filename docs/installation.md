@@ -12,6 +12,8 @@ The installer checks PHP version, PDO, SQLite, data-directory write access, data
 
 PHP 8.2 is in upstream security-only support through 2026-12-31 ([PHP supported versions](https://www.php.net/supported-versions.php)). Production deployments should move to a PHP branch with upstream security support. Barelytics retains PHP 8.2 in its CI and release matrices through that date; from 2027-01-01 the planned minimum is PHP 8.3. The first release on or after the cutoff must update the runtime guards, both matrices, and installation requirements together. The upper runtime guard must continue to match the highest PHP version tested by those matrices.
 
+Before deployment, also update web-serving PHP runtimes for the PHP project's 2026-10-21 critical advisories CVE-2026-109618 and CVE-2026-109619. Use the corresponding fixed upstream build (8.2.35, 8.3.36, 8.4.27, or 8.5.12), or confirm with your OS/LTS or hosting vendor that both fixes have been backported. Vendor build strings may not reveal backports, so a version-string check is not sufficient. These are runtime vulnerabilities, not evidence of a Barelytics application-code vulnerability. Updating is the only complete fix; see [the security guidance](../SECURITY.md) for temporary partial mitigations.
+
 ## Upload and initialize
 
 1. Download the repository archive and extract it on your computer.

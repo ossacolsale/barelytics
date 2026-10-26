@@ -17,6 +17,8 @@ Barelytics is designed and hardened to minimize attack surface and to treat all 
 
 Use HTTPS; store database and setup credentials outside public paths; grant write access only to the runtime data directory; ensure the web server cannot serve PHP source or private files; configure trusted country headers to be overwritten by the trusted edge; protect backups; and validate the host's actual deny rules. `.htaccess` is ignored by some servers and is not a substitute for private data placement.
 
+Keep the PHP runtime patched as well. The PHP project's 2026-10-21 advisories CVE-2026-109618 and CVE-2026-109619 affect web-serving PHP runtimes; they do not establish a vulnerability in Barelytics code. Upgrade to PHP 8.2.35, 8.3.36, 8.4.27, or 8.5.12 as applicable, or confirm with the OS/LTS or hosting vendor that both fixes have been backported. The vendor may keep a different version string, so checking that string alone is not enough. Updating is the only complete mitigation. See [SECURITY.md](../SECURITY.md) for references and temporary, partial risk-reduction measures.
+
 There are no third-party runtime dependencies. Review PHP/PDO SQLite updates and any host-level dependencies. SQLite permits a single writer at a time; the short busy timeout may drop a count during contention, while the public page remains unaffected. Backups contain aggregate data and should be access-controlled and deleted according to the owner's retention policy.
 
 ## Administrator password recovery
