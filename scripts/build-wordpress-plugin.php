@@ -19,6 +19,7 @@ function copyTree(string $source, string $destination): void
     }
 }
 copyTree($source, $build);
+copy($root . '/integrations/wordpress/README.md', $build . '/README.md');
 mkdir($build . '/barelytics-core', 0755, true);
 copyTree($core, $build . '/barelytics-core');
 if (!is_dir(dirname($zipPath))) { mkdir(dirname($zipPath), 0755, true); }

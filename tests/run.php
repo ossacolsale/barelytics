@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/public/barelytics/src/Barelytics.php';
+require_once dirname(__DIR__) . '/integrations/wordpress/barelytics/storage.php';
 
 use function Barelytics\escape;
 use function Barelytics\isBot;
@@ -23,6 +24,45 @@ $assert = static function (bool $condition, string $message) use (&$checks): voi
 
 $assert(\Barelytics\SUPPORTED_PHP_MIN === 80200, 'supported PHP baseline excludes the end-of-life 8.1 branch');
 $assert(\Barelytics\SUPPORTED_PHP_MAX === 80599, 'supported PHP ceiling matches the CI matrix');
+$wpRoot = sys_get_temp_dir() . '/barelytics-wp-path-' . bin2hex(random_bytes(5));
+mkdir($wpRoot . '/public/wp', 0700, true);
+mkdir($wpRoot . '/private', 0700, true);
+$wpDocroot = $wpRoot . '/public';
+$wpInstall = $wpDocroot . '/wp';
+$wpDefaultData = barelytics_wp_private_directory($wpDocroot, $wpInstall);
+$assert(!barelytics_wp_path_is_inside($wpDefaultData, $wpDocroot), 'default WordPress storage is outside the document root');
+$wpCustomData = barelytics_wp_private_directory($wpDocroot, $wpInstall, $wpRoot . '/private/custom');
+$assert($wpCustomData === $wpRoot . '/private/custom', 'custom out-of-root WordPress storage override is accepted');
+$unsafeOverrideRejected = false;
+try { barelytics_wp_private_directory($wpDocroot, $wpInstall, $wpDocroot . '/wp/wp-content/private'); }
+catch (RuntimeException) { $unsafeOverrideRejected = true; }
+$assert($unsafeOverrideRejected, 'custom WordPress storage inside the document root is rejected');
+$assert(barelytics_wp_path_is_inside($wpDocroot . '/wp-content', $wpDocroot), 'WordPress content under the document root is recognized');
+$symlinkPath = $wpRoot . '/public/private-link';
+if (@symlink($wpRoot . '/private', $symlinkPath)) {
+    $assert(!barelytics_wp_path_is_inside($symlinkPath, $wpDocroot), 'symlinked out-of-root paths resolve outside the document root');
+    $insideLink = $wpRoot . '/outside-link';
+    @symlink($wpDocroot . '/wp', $insideLink);
+    $assert(barelytics_wp_path_is_inside($insideLink, $wpDocroot), 'symlinks into the document root are recognized');
+    $unsafeSymlinkRejected = false;
+    try { barelytics_wp_private_directory($wpDocroot, $wpInstall, $insideLink); }
+    catch (RuntimeException) { $unsafeSymlinkRejected = true; }
+    $assert($unsafeSymlinkRejected, 'custom symlinked storage inside the document root is rejected');
+}
+$htaccessBlock = $wpRoot . '/blocked/.htaccess';
+mkdir(dirname($htaccessBlock), 0700, true);
+mkdir($htaccessBlock, 0700);
+$assert(!barelytics_wp_protect_legacy_directory(dirname($htaccessBlock)), 'failed deny-rule creation is reported');
+$generatedRules = $wpRoot . '/legacy-generated';
+mkdir($generatedRules, 0700);
+file_put_contents($generatedRules . '/.htaccess', "Deny from all\n");
+$assert(barelytics_wp_protect_legacy_directory($generatedRules)
+    && file_get_contents($generatedRules . '/.htaccess') === "# Barelytics generated data protection\nRequire all denied\n", 'recognized Apache legacy rule is upgraded to Apache 2.4 syntax');
+$adminRules = $wpRoot . '/legacy-admin';
+mkdir($adminRules, 0700);
+file_put_contents($adminRules . '/.htaccess', "# Administrator rules\nRequire ip 192.0.2.4\n");
+$assert(!barelytics_wp_protect_legacy_directory($adminRules)
+    && file_get_contents($adminRules . '/.htaccess') === "# Administrator rules\nRequire ip 192.0.2.4\n", 'administrator-maintained Apache rules are preserved');
 $projectRoot = dirname(__DIR__);
 $installerSource = (string) file_get_contents($projectRoot . '/public/barelytics/install.php');
 $assert((bool) preg_match('/if \(PHP_VERSION_ID < (\d+) \|\| PHP_VERSION_ID > (\d+)\)/', $installerSource, $runtimeGuard)
@@ -32,6 +72,12 @@ $assert(str_contains($installerSource, 'Barelytics supports PHP 8.2 through 8.5'
     && str_contains($installerSource, 'Supported range is PHP 8.2 through 8.5'), 'installer messages match the supported PHP range');
 $ciWorkflow = (string) file_get_contents($projectRoot . '/.github/workflows/ci.yml');
 $releaseWorkflow = (string) file_get_contents($projectRoot . '/.github/workflows/release.yml');
+$phpAction = 'shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962';
+$rubyAction = 'ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94';
+$assert(substr_count($ciWorkflow . $releaseWorkflow, $phpAction) === 3, 'all PHP setup action references are pinned to the reviewed upstream commit');
+$assert(substr_count($ciWorkflow . $releaseWorkflow, $rubyAction) === 2, 'all Ruby setup action references are pinned to the reviewed upstream commit');
+$assert(str_contains((string) file_get_contents($projectRoot . '/.github/dependabot.yml'), 'package-ecosystem: github-actions')
+    && str_contains((string) file_get_contents($projectRoot . '/.github/dependabot.yml'), 'interval: weekly'), 'Dependabot proposes weekly GitHub Actions updates');
 $phpMatrixVersions = static function (string $workflow): array {
     if (!preg_match('/^\s+php: \[([^]]+)\]$/m', $workflow, $match)) return [];
     preg_match_all("/'(8\.\d+)'/", $match[1], $versions);
@@ -157,6 +203,33 @@ if (!$sqliteAvailable) {
     mkdir($tmp, 0700);
     putenv('BARELYTICS_DATABASE_PATH=' . $tmp . '/analytics.sqlite');
     try {
+        $wpMigrationSource = $tmp . '/legacy';
+        $wpMigrationTarget = $tmp . '/migrated';
+        mkdir($wpMigrationSource, 0700);
+        mkdir($wpMigrationTarget, 0700);
+        file_put_contents($wpMigrationTarget . '/analytics.sqlite.migrating-interrupted', 'partial snapshot');
+        $migrationDb = new PDO('sqlite:' . $wpMigrationSource . '/analytics.sqlite');
+        $migrationDb->exec('PRAGMA journal_mode = WAL');
+        $migrationDb->exec('CREATE TABLE pageviews_daily(day TEXT, path TEXT, views INTEGER)');
+        $migrationDb->exec('CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)');
+        $migrationDb->exec("INSERT INTO pageviews_daily VALUES ('2026-11-02','/migration',7)");
+        $migrationDb->exec("INSERT INTO settings VALUES ('setup_complete','1')");
+        $assert(barelytics_wp_migrate_database($wpMigrationSource, $wpMigrationTarget), 'WordPress SQLite migration snapshots WAL data and validates the copy');
+        $migrationDb = null;
+        $migratedDb = new PDO('sqlite:' . $wpMigrationTarget . '/analytics.sqlite');
+        $assert((int) $migratedDb->query('SELECT SUM(views) FROM pageviews_daily')->fetchColumn() === 7
+            && $migratedDb->query('PRAGMA integrity_check')->fetchColumn() === 'ok', 'migrated WordPress database preserves rows and passes integrity check');
+        $assert(is_file($wpMigrationSource . '/analytics.sqlite'), 'successful migration keeps the original database recoverable');
+        $assert(is_file($wpMigrationTarget . '/analytics.sqlite.migrating-interrupted'), 'an interrupted migration artifact does not replace or delete the source database');
+        $migratedDb = null;
+        $badMigrationSource = $tmp . '/legacy-invalid';
+        $badMigrationTarget = $tmp . '/migrated-invalid';
+        mkdir($badMigrationSource, 0700);
+        mkdir($badMigrationTarget, 0700);
+        file_put_contents($badMigrationSource . '/analytics.sqlite', 'not a database');
+        $assert(!barelytics_wp_migrate_database($badMigrationSource, $badMigrationTarget)
+            && is_file($badMigrationSource . '/analytics.sqlite')
+            && !is_file($badMigrationTarget . '/analytics.sqlite'), 'failed WordPress migration leaves source intact and target uninitialized');
         $db = \Barelytics\openDatabase();
         $assert(\Barelytics\runSelfTest($db), 'installer self-test releases all PDO statements and commits its probe');
         $crudProbe = databaseWriteCheck($db);

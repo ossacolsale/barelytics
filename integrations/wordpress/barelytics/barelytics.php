@@ -12,12 +12,43 @@ declare(strict_types=1);
 
 if (!defined('ABSPATH')) { exit; }
 
-define('BARELYTICS_WP_DATA_DIRECTORY', WP_CONTENT_DIR . '/barelytics-private');
-if (!is_dir(BARELYTICS_WP_DATA_DIRECTORY)) { wp_mkdir_p(BARELYTICS_WP_DATA_DIRECTORY); }
-if (!is_file(BARELYTICS_WP_DATA_DIRECTORY . '/index.php')) { @file_put_contents(BARELYTICS_WP_DATA_DIRECTORY . '/index.php', "<?php http_response_code(404); exit;\n"); }
-if (!is_file(BARELYTICS_WP_DATA_DIRECTORY . '/.htaccess')) { @file_put_contents(BARELYTICS_WP_DATA_DIRECTORY . '/.htaccess', "Deny from all\n"); }
-putenv('BARELYTICS_DATA_DIRECTORY=' . BARELYTICS_WP_DATA_DIRECTORY);
-$_ENV['BARELYTICS_DATA_DIRECTORY'] = BARELYTICS_WP_DATA_DIRECTORY;
+require_once __DIR__ . '/storage.php';
+$barelyticsWpStorageReady = false;
+$barelyticsWpLegacyDirectory = WP_CONTENT_DIR . '/barelytics-private';
+try {
+    $barelyticsWpDocumentRoot = (string) ($_SERVER['DOCUMENT_ROOT'] ?? '');
+    if ($barelyticsWpDocumentRoot === '') { throw new RuntimeException('Analytics storage is unavailable.'); }
+    $barelyticsWpOverride = defined('BARELYTICS_WP_DATA_DIRECTORY') ? (string) BARELYTICS_WP_DATA_DIRECTORY : null;
+    $barelyticsWpDataDirectory = barelytics_wp_private_directory($barelyticsWpDocumentRoot, ABSPATH, $barelyticsWpOverride);
+    barelytics_wp_prepare_directory($barelyticsWpDataDirectory);
+    if (barelytics_wp_path_is_inside($barelyticsWpDataDirectory, $barelyticsWpDocumentRoot)) { throw new RuntimeException('Analytics storage is not private.'); }
+    if (is_file($barelyticsWpLegacyDirectory . '/analytics.sqlite') && get_option('barelytics_storage_migrated', '0') !== '1') {
+        if (barelytics_wp_path_is_inside($barelyticsWpLegacyDirectory, $barelyticsWpDocumentRoot)) {
+            if (!barelytics_wp_protect_legacy_directory($barelyticsWpLegacyDirectory)
+                || !barelytics_wp_verify_http_denial($barelyticsWpLegacyDirectory)) {
+                throw new RuntimeException('Existing analytics data directory is not protected.');
+            }
+        }
+        if (!barelytics_wp_migrate_database($barelyticsWpLegacyDirectory, $barelyticsWpDataDirectory)) {
+            throw new RuntimeException('Existing analytics data could not be migrated safely.');
+        }
+        update_option('barelytics_storage_migrated', '1', false);
+    }
+    if (is_file($barelyticsWpDataDirectory . '/analytics.sqlite') && !@chmod($barelyticsWpDataDirectory . '/analytics.sqlite', 0600)) {
+        throw new RuntimeException('Analytics storage is unavailable.');
+    }
+    if (!defined('BARELYTICS_WP_DATA_DIRECTORY')) { define('BARELYTICS_WP_DATA_DIRECTORY', $barelyticsWpDataDirectory); }
+    putenv('BARELYTICS_DATA_DIRECTORY=' . $barelyticsWpDataDirectory);
+    $_ENV['BARELYTICS_DATA_DIRECTORY'] = $barelyticsWpDataDirectory;
+    $barelyticsWpStorageReady = true;
+} catch (Throwable) {
+    if (!defined('BARELYTICS_WP_DATA_DIRECTORY')) { define('BARELYTICS_WP_DATA_DIRECTORY', ''); }
+}
+function barelytics_wp_storage_ready(): bool
+{
+    global $barelyticsWpStorageReady;
+    return $barelyticsWpStorageReady;
+}
 
 $barelyticsCore = __DIR__ . '/barelytics-core/src/Barelytics.php';
 if (is_file($barelyticsCore)) { require_once $barelyticsCore; }
@@ -25,12 +56,16 @@ $barelyticsAdminApi = __DIR__ . '/barelytics-core/src/AdminApi.php';
 if (is_file($barelyticsAdminApi)) { require_once $barelyticsAdminApi; }
 
 register_activation_hook(__FILE__, static function (): void {
-    if (!is_dir(BARELYTICS_WP_DATA_DIRECTORY)) { wp_mkdir_p(BARELYTICS_WP_DATA_DIRECTORY); }
-    @chmod(BARELYTICS_WP_DATA_DIRECTORY, 0700);
+    if (barelytics_wp_storage_ready()) { @chmod(BARELYTICS_WP_DATA_DIRECTORY, 0700); }
+});
+
+add_action('admin_notices', static function (): void {
+    if (!current_user_can('manage_options') || barelytics_wp_storage_ready()) { return; }
+    echo '<div class="notice notice-error"><p>' . esc_html__('Barelytics is paused because its private data directory could not be verified or existing data could not be migrated. Set BARELYTICS_WP_DATA_DIRECTORY in wp-config.php to a writable directory outside the web document root. For existing data under wp-content, keep the original database, merge a Require all denied rule into any administrator-maintained .htaccess without removing its rules, or add the Nginx deny location for the actual public URL path; then retry and review the migration guidance in the plugin README included with the package.', 'barelytics') . '</p></div>';
 });
 
 add_action('template_redirect', static function (): void {
-    if (get_option('barelytics_enabled', '1') !== '1') { return; }
+    if (!barelytics_wp_storage_ready() || get_option('barelytics_enabled', '1') !== '1') { return; }
     if (is_admin() || is_feed() || is_robots() || is_trackback() || is_preview() || is_404()) { return; }
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET' || !is_singular() && !is_front_page() && !is_home()) { return; }
     if (function_exists('Barelytics\\connectDatabase') && function_exists('Barelytics\\countRequest')) {
@@ -61,7 +96,7 @@ add_action('wp_ajax_barelytics_admin_api', static function (): void {
         status_header(403); header('Content-Type: application/json; charset=UTF-8');
         echo wp_json_encode(['ok' => false, 'data' => null, 'error' => ['code' => 'forbidden', 'message' => 'Administrator access or request verification required.']]); exit;
     }
-    if (!function_exists('Barelytics\\connectDatabase') || !function_exists('Barelytics\\dispatchAdminApi')) {
+    if (!barelytics_wp_storage_ready() || !function_exists('Barelytics\\connectDatabase') || !function_exists('Barelytics\\dispatchAdminApi')) {
         status_header(503); header('Content-Type: application/json; charset=UTF-8');
         echo wp_json_encode(['ok' => false, 'data' => null, 'error' => ['code' => 'unavailable', 'message' => 'Barelytics administration is unavailable.']]); exit;
     }
@@ -117,7 +152,7 @@ add_action('admin_post_barelytics_save', static function (): void {
         exit;
     }
     update_option('barelytics_enabled', isset($_POST['enabled']) ? '1' : '0', false);
-    if (function_exists('Barelytics\\connectDatabase')) {
+    if (barelytics_wp_storage_ready() && function_exists('Barelytics\\connectDatabase')) {
         try {
             $db = \Barelytics\connectDatabase();
             $enabled = isset($_POST['enabled']);
@@ -138,7 +173,7 @@ function barelytics_wp_settings_page(): void
     $dimensions = [];
     $stats = null;
     $audit = null;
-    if (function_exists('Barelytics\\connectDatabase')) {
+    if (barelytics_wp_storage_ready() && function_exists('Barelytics\\connectDatabase')) {
         try {
             $db = \Barelytics\connectDatabase();
             foreach (['country_collection', 'referrer_collection', 'browser_collection', 'device_collection', 'os_collection'] as $key) { $dimensions[$key] = \Barelytics\setting($db, $key, '0') === '1'; }
@@ -165,7 +200,7 @@ function barelytics_wp_settings_page(): void
     <div class="wrap">
       <h1>Barelytics</h1>
       <p><?php echo esc_html__('Strict Mode is enabled by default: Barelytics stores daily page totals and normalized paths, without visitor identifiers or cookies.', 'barelytics'); ?></p>
-      <p><?php echo esc_html(sprintf(__('Private SQLite data directory: %s', 'barelytics'), BARELYTICS_WP_DATA_DIRECTORY)); ?></p>
+      <p><?php echo esc_html__('Analytics data is stored in a private directory outside the web document root.', 'barelytics'); ?></p>
       <?php if (!is_file(__DIR__ . '/barelytics-core/src/Barelytics.php')): ?>
         <div class="notice notice-error"><p><?php echo esc_html__('The PHP core is missing. Reinstall Barelytics using the ZIP created by scripts/build-wordpress-plugin.php.', 'barelytics'); ?></p></div>
       <?php endif; ?>

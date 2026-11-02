@@ -2,6 +2,14 @@
 
 All notable changes to Barelytics are documented here.
 
+## Unreleased
+
+### Security
+
+- Store WordPress SQLite data outside the effective document root by default, validate custom paths through real paths and symlinks, and pause tracking when private storage or a protected legacy migration cannot be verified.
+- Migrate legacy WordPress databases through a consistent SQLite snapshot while retaining the original, use Apache 2.4 access rules, and document Nginx denial rules.
+- Pin third-party PHP and Ruby GitHub Actions to verified upstream commit SHAs and enable weekly Dependabot update proposals.
+
 ## 1.1.0
 
 ### Added
