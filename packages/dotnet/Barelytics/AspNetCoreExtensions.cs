@@ -11,9 +11,13 @@ public static class AspNetCoreExtensions
 {
     public static IEndpointRouteBuilder MapBarelyticsTrack(this IEndpointRouteBuilder endpoints, BarelyticsStore store, string pattern = "/barelytics/track")
     {
-        endpoints.MapMethods(pattern, ["POST"], async context =>
+        endpoints.Map(pattern, async context =>
         {
+            context.Response.Headers["Cache-Control"] = "no-store";
+            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            if (context.Request.Method != "POST") { context.Response.StatusCode = 405; context.Response.Headers.Allow = "POST"; return; }
             if (context.Request.ContentLength > 8192) { context.Response.StatusCode = 413; return; }
+            if (!string.Equals(context.Request.ContentType?.Split(';')[0].Trim(), "application/json", StringComparison.OrdinalIgnoreCase)) { context.Response.StatusCode = 415; return; }
             using var memory = new MemoryStream();
             var buffer = new byte[2048]; int count;
             while ((count = await context.Request.Body.ReadAsync(buffer, context.RequestAborted)) > 0)
@@ -21,18 +25,45 @@ public static class AspNetCoreExtensions
                 if (memory.Length + count > 8192) { context.Response.StatusCode = 413; return; }
                 await memory.WriteAsync(buffer.AsMemory(0, count), context.RequestAborted);
             }
+            CollectorRequest payload;
+            try { payload = ParseCollectorRequest(memory.ToArray()); }
+            catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException)
+            {
+                context.Response.StatusCode = 400; return;
+            }
             try
             {
-                using var doc = JsonDocument.Parse(memory.ToArray());
-                if (doc.RootElement.ValueKind != JsonValueKind.Object || doc.RootElement.EnumerateObject().Count() != 1 || !doc.RootElement.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String || BarelyticsStore.NormalizePath(path.GetString()) is null) { context.Response.StatusCode = 400; return; }
-                _ = store.TrackPageView(path.GetString(), context.Request.Headers.UserAgent.ToString());
-                context.Response.StatusCode = 204;
+                if (payload.Extended && !store.Configuration().ReferrerCollection) { context.Response.StatusCode = 400; return; }
+                _ = store.TrackPageView(payload.Path, context.Request.Headers.UserAgent.ToString(), referrer: payload.Host is null ? "" : "https://" + payload.Host);
             }
-            catch (JsonException) { context.Response.StatusCode = 400; }
-            catch { context.Response.StatusCode = 204; }
+            catch { /* Analytics storage failures remain silent to the visitor. */ }
+            context.Response.StatusCode = 204;
         });
         return endpoints;
     }
+
+    private sealed record CollectorRequest(string Path, bool Extended, string? Host);
+    private static CollectorRequest ParseCollectorRequest(byte[] bytes)
+    {
+        // JsonDocument can defer UTF-8 string decoding; validate transport bytes first.
+        var text = new System.Text.UTF8Encoding(false, true).GetString(bytes);
+        using var doc = JsonDocument.Parse(text);
+        var body = doc.RootElement;
+        if (body.ValueKind != JsonValueKind.Object) throw new JsonException();
+        var keys = body.EnumerateObject().Select(p => p.Name).Distinct().Order().ToArray();
+        var extended = keys.SequenceEqual(new[] { "path", "referrer_host", "version" }) && body.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.Number && version.TryGetDouble(out var versionValue) && versionValue == 2;
+        if ((!keys.SequenceEqual(new[] { "path" }) && !extended) || !body.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String || BarelyticsStore.NormalizePath(path.GetString()) is null) throw new JsonException();
+        string? host = null;
+        if (extended)
+        {
+            var value = body.GetProperty("referrer_host");
+            if (value.ValueKind != JsonValueKind.Null && (value.ValueKind != JsonValueKind.String || !ValidHostname(value.GetString()!))) throw new JsonException();
+            host = value.ValueKind == JsonValueKind.Null ? null : value.GetString();
+        }
+        return new(path.GetString()!, extended, host);
+    }
+
+    private static bool ValidHostname(string value) => BarelyticsStore.ValidReferrerHostname(value);
 
     public static IEndpointRouteBuilder MapBarelyticsAdmin(this IEndpointRouteBuilder endpoints, BarelyticsStore store, IAntiforgery antiforgery, string adminPolicy, string pattern = "/barelytics/admin")
     {

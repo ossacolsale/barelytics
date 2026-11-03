@@ -6,9 +6,28 @@ All notable changes to Barelytics are documented here.
 
 ### Security
 
+- Reject ambiguous encoded paths and decoded private-route exclusions across all runtimes; align collectors on bounded 8 KiB UTF-8 JSON requests, permitted fields and no-store responses.
+- Build WordPress ZIPs from an explicit source manifest, reject linked entries, remove stale archive members, and reject bootstrap/recovery tokens in release validation.
 - Store WordPress SQLite data outside the effective document root by default, validate custom paths through real paths and symlinks, and pause tracking when private storage or a protected legacy migration cannot be verified.
 - Migrate legacy WordPress databases through a consistent SQLite snapshot while retaining the original, use Apache 2.4 access rules, and document Nginx denial rules.
 - Pin third-party PHP and Ruby GitHub Actions to verified upstream commit SHAs and enable weekly Dependabot update proposals.
+
+### Added
+
+- Separate daily automation aggregates and an administration dashboard for declared search/AI crawlers, social previews, monitoring, other and uncertain automation, using shared classification rules and tests across runtimes.
+- Page-filtered country, referrer, browser, device and OS reports, plus page-detail links and breakdowns.
+- Explicit opt-in browser referrer protocol v2 that sends only a minimized hostname; Strict requests remain path-only and ignore the beacon Referer header.
+
+### Fixed
+
+- Use one canonical UTC event day for aggregate writes, serialize shared SQLite connection operations, roll back interrupted writes, preserve existing settings on reopen and refuse future schemas.
+- Run bounded automatic retention in PHP without FastCGI, WordPress and native integrations, resuming pending batches on subsequent requests; initialize fresh WordPress storage on activation.
+- Distinguish historical Extended aggregates from current collection in privacy audits and reject unapproved native schema tables/columns.
+
+### Privacy
+
+- Explicitly revise the Strict aggregate contract to permit safe-path/day automation category/family counters in additive schema migration 3. No raw User-Agent, IP, browser identifier or analytics cookie is stored; declared identities remain unverified.
+- Daily Reach remains unavailable after architecture and measurement validation: common markers cannot prevent cookie-rejection, concurrency and retry bias. No reach cookie, table or automatic activation is introduced.
 
 ## 1.1.0
 

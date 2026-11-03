@@ -138,6 +138,11 @@ $assert(normalizePath('https://evil.example/path') === null, 'external URLs are 
 $assert(normalizePath('//evil.example/path') === null, 'network-path references are rejected');
 $assert(normalizePath('/' . str_repeat('a', 512)) === null, 'oversized paths are rejected');
 $assert(normalizePath("/bad\0path") === null, 'control characters are rejected');
+foreach (json_decode(file_get_contents(__DIR__ . '/../spec/test-vectors/path-normalization.json'), true) as $vector) {
+    $input = is_array($vector['input']) ? $vector['input']['prefix'] . str_repeat($vector['input']['repeat'], $vector['input']['count']) : $vector['input'];
+    $assert(normalizePath($input) === $vector['expected'], 'shared path normalization vector');
+    if (isset($vector['excluded'])) $assert(\Barelytics\pathIsExcluded($input, \Barelytics\DEFAULT_PATH_EXCLUSIONS) === $vector['excluded'], 'shared path exclusion vector');
+}
 $assert(isBot('Mozilla compatible GOOGLEBOT/2.1'), 'crawler matching is case-insensitive');
 $assert(isBot('MyTestRobot', ['robot']), 'custom crawler patterns are applied');
 $assert(!isBot('Mozilla/5.0 (X11; Linux x86_64)'), 'ordinary browser user agents are accepted');
@@ -145,6 +150,7 @@ $assert(referrerHost('https://Example.COM/a?person=123#x') === 'example.com', 'r
 $assert(referrerHost('javascript:alert(1)') === null, 'non-http referrers are rejected');
 $assert(referrerHost('https://user:pass@example.com/path') === null, 'userinfo referrers are rejected');
 $assert(referrerHost('https://127.0.0.1/path') === null, 'IP referrer hosts are rejected');
+$assert(referrerHost('https://0x7f000001/path') === null, 'numeric alternative IP referrers are rejected');
 $assert(escape('<script>alert("x")</script>') === '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;', 'HTML output is escaped');
 $assert(!passwordMeetsMinimum('short'), 'short passwords are rejected');
 $assert(!passwordMeetsMinimum('éééé'), 'password length is measured in characters, not UTF-8 bytes');
@@ -244,11 +250,11 @@ if (!$sqliteAvailable) {
         $assert(\Barelytics\migrateDatabase($db) === \Barelytics\CURRENT_SCHEMA_VERSION, 'schema migration is safe to repeat');
         \Barelytics\setSetting($db, 'setup_complete', '1');
         \Barelytics\setSetting($db, 'admin_password_hash', password_hash('existing-admin-password', PASSWORD_DEFAULT));
-        $assert(\Barelytics\tableExists($db, 'settings') && \Barelytics\setting($db, 'setup_complete', '0') === '1' && \Barelytics\schemaVersion($db) === 2, 'schema-2 database helpers close cursors before follow-up operations');
+        $assert(\Barelytics\tableExists($db, 'settings') && \Barelytics\setting($db, 'setup_complete', '0') === '1' && \Barelytics\schemaVersion($db) === \Barelytics\CURRENT_SCHEMA_VERSION, 'current-schema database helpers close cursors before follow-up operations');
         $existingHash = \Barelytics\setting($db, 'admin_password_hash', '');
         $existingViews = (int) \Barelytics\queryColumn($db, 'SELECT COALESCE(SUM(views), 0) FROM pageviews_daily');
         $existingProbe = databaseWriteCheck($db);
-        $assert($existingProbe['ready'] && \Barelytics\schemaVersion($db) === 2, 'existing schema-2 database passes CRUD probe without migration');
+        $assert($existingProbe['ready'] && \Barelytics\schemaVersion($db) === \Barelytics\CURRENT_SCHEMA_VERSION, 'existing current-schema database passes CRUD probe without migration');
         $assert(\Barelytics\setting($db, 'setup_complete', '0') === '1' && \Barelytics\setting($db, 'admin_password_hash', '') === $existingHash && (int) \Barelytics\queryColumn($db, 'SELECT COALESCE(SUM(views), 0) FROM pageviews_daily') === $existingViews, 'diagnostic probe preserves setup, admin hash, and analytics aggregates');
         $readOnlyDb = \Barelytics\connectReadOnlyDatabase();
         $readOnlyWriteBlocked = false;
@@ -266,11 +272,8 @@ if (!$sqliteAvailable) {
         $assert($strict['country'] === 'XX' && (int) $strict['views'] === 1, 'strict request stores only the aggregate path and default country placeholder');
         $assert((int) $db->query('SELECT COUNT(*) FROM referrers_daily')->fetchColumn() === 0 && (int) $db->query('SELECT COUNT(*) FROM dimensions_daily')->fetchColumn() === 0, 'disabled dimensions are not persisted');
         $assert(!\Barelytics\countRequest($db, '/account/42'), 'default private path exclusion prevents an analytics write');
-        $before = (int) $db->query('SELECT SUM(views) FROM pageviews_daily')->fetchColumn();
         $payload = ['path' => '/about', 'country' => 'IT', 'visitor_id' => 'abc', 'email' => 'person@example.com'];
-        $assert(isset($payload['visitor_id']) && \Barelytics\countRequest($db, normalizePath($payload['path'])), 'server collector counts the validated path independently of client-added properties');
-        $after = (int) $db->query('SELECT SUM(views) FROM pageviews_daily')->fetchColumn();
-        $assert($after === $before + 1 && (int) $db->query('SELECT COUNT(*) FROM referrers_daily')->fetchColumn() === 0, 'extra client properties cannot cause collection of disabled dimensions');
+        $assert(\Barelytics\collectorPayload(json_encode($payload)) === null, 'collector rejects additional client properties before collection');
         foreach (['country_collection','referrer_collection','browser_collection','device_collection','os_collection'] as $key) \Barelytics\setSetting($db, $key, '1');
         \Barelytics\recordPrivacyConfiguration($db);
         $assert(\Barelytics\effectivePrivacyConfig($db)['profile'] === 'extended', 'enabling optional dimensions computes the Extended profile');
@@ -294,6 +297,53 @@ if (!$sqliteAvailable) {
         $views = (int) $db->query("SELECT views FROM pageviews_daily WHERE path = '/article'")->fetchColumn();
         $assert($views === 1, 'aggregate counter increments');
         $assert(!str_contains(file_get_contents($tmp . '/analytics.sqlite') ?: '', '192.0.2.1'), 'database does not contain fixture IP');
+        $assert(!\Barelytics\countRequest($db, '/admin') && !\Barelytics\countRequest($db, '/%61dmin/report'), 'private base and encoded paths are excluded');
+        \Barelytics\recordPageview($db, '/canonical-day', 'IT', 'example.test', ['browser' => 'Other'], strtotime('2026-01-01 23:59:59 UTC'));
+        foreach (['pageviews_daily', 'referrers_daily', 'dimensions_daily'] as $table) {
+            $assert(\Barelytics\queryColumn($db, "SELECT day FROM $table WHERE path='/canonical-day'") === '2026-01-01', 'one event uses one UTC day in ' . $table);
+        }
+        $db->exec("CREATE TRIGGER fail_dimension BEFORE INSERT ON dimensions_daily BEGIN SELECT RAISE(ABORT, 'fixture'); END");
+        try { \Barelytics\recordPageview($db, '/interrupted', 'XX', null, ['browser' => 'Other']); } catch (PDOException) { }
+        $assert((int) \Barelytics\queryColumn($db, "SELECT COUNT(*) FROM pageviews_daily WHERE path='/interrupted'") === 0, 'failed dimension writes roll back the page view');
+        $db->exec('DROP TRIGGER fail_dimension');
+        foreach (\Barelytics\PRIVACY_DEFAULTS as $key => $_) \Barelytics\setSetting($db, $key, '0');
+        $audit = \Barelytics\schemaAudit($db, 'STRICT', \Barelytics\effectivePrivacyConfig($db));
+        $assert($audit['status'] === 'PASS' && in_array('country', $audit['historical_dimensions'], true), 'retained Extended aggregates do not indicate active Strict collection');
+        $db->beginTransaction();
+        for ($i = 0; $i < 1001; $i++) \Barelytics\executeStatement($db, "INSERT INTO pageviews_daily VALUES ('2000-01-01', :path, 'XX', 1)", [':path' => '/expired-' . $i]);
+        $db->commit();
+        \Barelytics\setSetting($db, 'last_cleanup_at', '');
+        \Barelytics\runScheduledCleanupIfDue($db);
+        $assert((int) \Barelytics\queryColumn($db, "SELECT COUNT(*) FROM pageviews_daily WHERE day='2000-01-01'") === 1, 'automatic retention work is bounded');
+        \Barelytics\runScheduledCleanupIfDue($db);
+        $assert((int) \Barelytics\queryColumn($db, "SELECT COUNT(*) FROM pageviews_daily WHERE day='2000-01-01'") === 0, 'automatic retention resumes pending batches without waiting a day');
+        foreach (json_decode(file_get_contents(__DIR__ . '/../spec/test-vectors/automation.json'), true) as $vector) {
+            $classification = \Barelytics\classifyUserAgent($vector['user_agent'], $vector['additional_patterns'] ?? []);
+            foreach (['category', 'family', 'identity', 'automation'] as $field) $assert($classification[$field] === $vector[$field], 'shared automation vector: ' . $field);
+            $assert($classification['verified'] === false, 'declared automation is never marked verified');
+        }
+        $_SERVER['HTTP_USER_AGENT'] = 'GPTBot/1';
+        $assert(!\Barelytics\countRequest($db, '/automation'), 'automation does not update ordinary views');
+        $assert(!\Barelytics\countRequest($db, '/private/bot'), 'private routes exclude automation');
+        $assert((int) \Barelytics\queryColumn($db, "SELECT requests FROM automation_daily WHERE path='/automation'") === 1, 'Strict stores separate finite automation aggregates');
+        $assert((int) \Barelytics\queryColumn($db, "SELECT COUNT(*) FROM pageviews_daily WHERE path='/automation'") === 0, 'bot requests never enter ordinary page-view totals');
+        $db->exec("INSERT INTO automation_daily VALUES ('2000-01-01','/expired','ai','openai',2)");
+        \Barelytics\cleanRetentionBatch($db);
+        $assert((int) \Barelytics\queryColumn($db, "SELECT COUNT(*) FROM automation_daily WHERE day='2000-01-01'") === 0, 'automation participates in retention');
+        $legacy = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $legacy->exec(file_get_contents(__DIR__ . '/../spec/test-vectors/legacy-v2.sql'));
+        $assert(\Barelytics\migrateDatabase($legacy) === 3 && \Barelytics\migrateDatabase($legacy) === 3, 'schema-2 migration is additive and repeatable');
+        $assert((int) \Barelytics\queryColumn($legacy, "SELECT views FROM pageviews_daily WHERE path='/legacy'") === 7 && \Barelytics\setting($legacy, 'admin_password_hash', '') === 'fixture-unchanged-credential' && \Barelytics\effectivePrivacyConfig($legacy)['retention_days'] === 30, 'migration preserves legacy totals, credentials and settings');
+        $legacy->exec('CREATE TABLE request_log(user_agent TEXT)');
+        $assert(\Barelytics\schemaAudit($legacy, 'STRICT', \Barelytics\effectivePrivacyConfig($legacy))['status'] === 'FAIL', 'unrecognized raw-data tables fail audit');
+        $legacy->exec('DROP TABLE request_log');
+        $legacy->exec('ALTER TABLE settings ADD COLUMN ip_address TEXT');
+        $assert(\Barelytics\schemaAudit($legacy, 'STRICT', \Barelytics\effectivePrivacyConfig($legacy))['status'] === 'FAIL', 'identity columns in approved metadata tables fail audit');
+        $legacy->exec("INSERT INTO schema_migrations VALUES (99,'fixture')");
+        $futureRejected = false;
+        try { \Barelytics\migrateDatabase($legacy); } catch (RuntimeException) { $futureRejected = true; }
+        $assert($futureRejected && \Barelytics\schemaVersion($legacy) === 99, 'future schemas are not downgraded or rewritten');
+        unset($legacy);
         unset($db);
     } finally {
         foreach (glob($tmp . '/*') ?: [] as $file) @unlink($file);

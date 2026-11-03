@@ -8,10 +8,10 @@ Barelytics' audit page is an aid for technical review, not the sole evidence of 
 2. In **Network**, load a normal page and filter for the Barelytics tracker endpoint (`track.php`).
 3. Inspect the request body. In Strict Mode it should contain only a normalized `path`, for example `{"path":"/about"}`. Confirm there is no visitor/session ID, IP, User-Agent, screen information, country, referrer, query parameter, or arbitrary event property.
 4. Inspect all analytics-related requests and confirm they go only to the same site's Barelytics endpoint. Barelytics does not configure third-party analytics or enrichment services.
-5. In **Application/Storage**, inspect cookies, localStorage, sessionStorage, and IndexedDB. The tracker should create no analytics storage or identifiers. The authenticated admin interface does use an HttpOnly session cookie for administrator sign-in; it is not sent or used by the tracking code.
-6. Repeat on a private route configured in the exclusion list. The analytics endpoint should receive no request for that page when using the JavaScript tracker; a server integration should produce no database write.
+5. In **Application/Storage**, inspect cookies, localStorage, sessionStorage, and IndexedDB. The tracker should create no analytics storage or identifiers. The authenticated admin interface uses an HttpOnly session cookie for sign-in. The browser may automatically send existing application/admin cookies on matching paths; the collector does not read or use them for analytics.
+6. Repeat on a private route configured in the exclusion list. The browser may still send the path to the first-party collector; the server must exclude it before any database write, including automation writes. A server integration must likewise produce no write.
 
-The JavaScript tracker sends the current pathname only. It omits both query strings and URL fragments. The endpoint accepts only a string `path` and ignores additional client-supplied properties.
+Strict JavaScript requests send the current pathname only, without query strings or fragments; normalization and exclusion happen on the server. Extra fields are rejected. Extended hostname attribution is explicitly opt-in on both client and server and sends only the validated hostname through protocol v2, never the original referrer URL.
 
 ## Database and configuration
 
@@ -19,7 +19,7 @@ The JavaScript tracker sends the current pathname only. It omits both query stri
 2. Run the privacy self-test. A mandatory strict-property or schema failure should result in `FAIL`, not a clean pass.
 3. Review the SHA-256 configuration fingerprint and timestamped configuration history. History contains configuration metadata only; it must not contain visitor records, IP addresses, full User-Agents, or request payloads.
 4. Export the JSON report if a review artifact is needed. It includes aggregate schema metadata and application file checksums, not analytics counts or visitor-level data.
-5. Independently inspect the SQLite schema using a SQLite browser or another approved read-only tool. `pageviews_daily` stores aggregate day/path/count values (the legacy `country` field stays at `XX` unless country is enabled). `referrers_daily` and `dimensions_daily` contain only aggregate rows for enabled dimensions. Search table names and columns for IP addresses, visitor/session identifiers, raw User-Agent, cookies, and event payloads.
+5. Independently inspect the SQLite schema using a SQLite browser or another approved read-only tool. `pageviews_daily` stores aggregate day/path/count values (the legacy `country` field stays at `XX` unless country is enabled). `referrers_daily` and `dimensions_daily` contain aggregate dimensions, including retained history after collection is disabled. `automation_daily` contains only day/path/category/family/count aggregates. `historical_dimensions` identifies retained disabled dimensions separately from current collection; their presence alone does not fail a Strict audit. Search table names and columns for IP addresses, visitor/session identifiers, raw User-Agent, cookies, and event payloads.
 6. Inspect the installed `track.php`, `track.js`, and `src/Barelytics.php` files and compare their SHA-256 values with the exported report or a trusted release artifact. The report hashes describe the files currently on disk; compare them with a trusted reference to establish release integrity.
 
 ## Path privacy and retention

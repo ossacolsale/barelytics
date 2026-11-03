@@ -38,3 +38,11 @@ npm test
 ```
 
 No automatic update checks, usage reports, crash uploads, or project-author telemetry are sent.
+
+Automation reports and page-filtered dimensions are available in the administration
+UI. Automation identities are declared, never verified; JavaScript sees only
+clients executing the tracker. Browser attribution requires explicit protocol v2
+opt-in; default requests remain path-only. See [configuration and browser
+integration](../../docs/configuration.md) and the [collector contract](../../spec/protocol.md).
+Daily Reach is unavailable; no analytics cookie or distinct-browser count is
+introduced. Reopening a store with default options preserves saved settings.

@@ -1,0 +1,187 @@
+[
+  {
+    "user_agent": "Mozilla compatible GOOGLEBOT/2.1",
+    "category": "search",
+    "family": "google",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "GPTBot/1.4",
+    "category": "ai",
+    "family": "openai",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "Mozilla/5.0 ChatGPT-User/1.0",
+    "category": "ai",
+    "family": "openai",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "OAI-SearchBot/1.0",
+    "category": "ai",
+    "family": "openai",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "Claude-User/1.0",
+    "category": "ai",
+    "family": "anthropic",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "Claude-SearchBot/1",
+    "category": "ai",
+    "family": "anthropic",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "PerplexityBot/1",
+    "category": "ai",
+    "family": "perplexity",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "facebookexternalhit/1.1",
+    "category": "social",
+    "family": "facebook",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "Twitterbot/1",
+    "category": "social",
+    "family": "twitter",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "UptimeRobot/2",
+    "category": "monitoring",
+    "family": "uptimerobot",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "Mozilla/5.0 Lighthouse",
+    "category": "monitoring",
+    "family": "lighthouse",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "curl/8.0",
+    "category": "other",
+    "family": "http-library",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "a crawler/1",
+    "category": "uncertain",
+    "family": "generic",
+    "identity": "heuristic",
+    "automation": true
+  },
+  {
+    "user_agent": "headless",
+    "category": "uncertain",
+    "family": "generic",
+    "identity": "heuristic",
+    "automation": true
+  },
+  {
+    "user_agent": "Mozilla/5.0 (Android; CUBOT X30) Chrome/124",
+    "category": "browser",
+    "family": "browser",
+    "identity": "presumed",
+    "automation": false
+  },
+  {
+    "user_agent": "robotics browser",
+    "category": "unknown",
+    "family": "unknown",
+    "identity": "unknown",
+    "automation": false
+  },
+  {
+    "user_agent": "notgooglebotbrowser",
+    "category": "unknown",
+    "family": "unknown",
+    "identity": "unknown",
+    "automation": false
+  },
+  {
+    "user_agent": "",
+    "category": "unknown",
+    "family": "unknown",
+    "identity": "unknown",
+    "automation": false
+  },
+  {
+    "user_agent": "unrecognized-client/1",
+    "category": "unknown",
+    "family": "unknown",
+    "identity": "unknown",
+    "automation": false
+  },
+  {
+    "user_agent": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "category": "uncertain",
+    "family": "oversized",
+    "identity": "heuristic",
+    "automation": true
+  },
+  {
+    "user_agent": "MyTestRobot",
+    "additional_patterns": [
+      "robot"
+    ],
+    "category": "other",
+    "family": "custom",
+    "identity": "heuristic",
+    "automation": true
+  },
+  {
+    "user_agent": "\u017flurp",
+    "category": "unknown",
+    "family": "unknown",
+    "identity": "unknown",
+    "automation": false
+  },
+  {
+    "user_agent": "SLURP/1",
+    "category": "search",
+    "family": "yahoo",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "Mozilla/5.0 Google Page Speed Insights",
+    "category": "monitoring",
+    "family": "pagespeed",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "GoogleOther/1.0",
+    "category": "other",
+    "family": "google",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "OAI-AdsBot/1.0",
+    "category": "other",
+    "family": "openai",
+    "identity": "declared",
+    "automation": true
+  }
+]

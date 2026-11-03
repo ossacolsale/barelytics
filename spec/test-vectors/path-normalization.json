@@ -17,5 +17,15 @@
   {"input":{"prefix":"/","repeat":"a","count":512},"expected":null},
   {"input":"/admin.php","expected":"/admin.php","excluded":true},
   {"input":"/admin/users","expected":"/admin/users","excluded":true},
-  {"input":"/public/admin-guide","expected":"/public/admin-guide","excluded":false}
+  {"input":"/public/admin-guide","expected":"/public/admin-guide","excluded":false},
+  {"input":"/admin","expected":"/admin","excluded":true},
+  {"input":"/%61dmin/report","expected":"/%61dmin/report","excluded":true},
+  {"input":"/a/../admin/report","expected":null},
+  {"input":"/%2e%2e/admin","expected":null},
+  {"input":"/a%2fadmin","expected":null},
+  {"input":"/a\\admin","expected":null},
+  {"input":"/%2561dmin/report","expected":null},
+  {"input":"/bad%FF","expected":null},
+  {"input":"/bad%C0%AF","expected":null},
+  {"input":"/caf%C3%A9","expected":"/caf%C3%A9"}
 ]

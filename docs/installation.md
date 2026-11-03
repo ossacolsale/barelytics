@@ -52,7 +52,7 @@ The JavaScript endpoint counts the initial document view on a single-page app. I
 
 ## Retention without cron
 
-Cron is optional. At most once per 24 hours, a tracker request runs one bounded cleanup batch after the response when PHP-FPM provides `fastcgi_finish_request()`. On other PHP handlers, an authenticated admin request runs the batch. Each batch removes up to 1,000 expired rows from each aggregate table and stores its last-run time so later requests resume cleanup safely. The admin maintenance button can also run one bounded batch. An optional cron job may call `cleanup.php`, but it is not required for retention or reports.
+Active collection triggers a due retention batch at least once per 24 hours, including PHP without FastCGI and WordPress. Each invocation deletes at most 1,000 expired rows per aggregate table, including automation. A full batch marks cleanup pending so subsequent requests resume immediately. PHP-FPM can finish its response before maintenance; other handlers perform bounded work during the request or shutdown. Administrator maintenance can also run a batch. Idle sites have no execution trigger: schedule maintenance if wall-clock deletion is required.
 
 ## Verify
 

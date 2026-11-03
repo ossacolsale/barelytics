@@ -4,13 +4,13 @@ Barelytics is designed and hardened to minimize attack surface and to treat all 
 
 ## Controls
 
-- Tracker accepts only POST, only JSON or plain text, caps body size, validates same-site origin-form paths, rejects email-like paths, collapses common numeric/UUID record IDs, and uses prepared SQLite statements.
+- Tracker accepts only POST, only UTF-8 JSON with permitted fields, caps body size at 8 KiB, validates same-site origin-form paths, rejects email-like paths, collapses common numeric/UUID record IDs, and uses prepared SQLite statements.
 - SQL inputs are bound parameters. Database-derived strings are escaped with `htmlspecialchars` before HTML output.
 - Admin state changes use session-bound CSRF tokens; destructive deletion also requires an explicit confirmation checkbox.
 - Admin uses PHP password hashing/verification, a one-time setup token, session ID rotation on login, strict/HTTP-only/SameSite cookies, a failed-login delay, and a small per-session attempt limit.
 - Admin responses send no-store, nosniff, no-referrer, and a restrictive Content Security Policy.
 - Tracker does not persist IP, User-Agent, Referer URL, or request bodies. Errors fail closed without disclosing details to visitors.
-- SQLite uses prepared queries, WAL mode when supported, and a one-second busy timeout. Retention cleanup is bounded and runs after a response on PHP-FPM or on authenticated admin requests; cron is optional.
+- SQLite uses prepared queries, WAL mode when supported, and a one-second busy timeout. Retention cleanup runs in bounded opportunistic batches across all integrations, including PHP without FastCGI. Full batches resume on later requests. Cron is optional for active sites; idle sites need a scheduled trigger for wall-clock enforcement.
 - The preferred database location is outside the document root. Included Apache rules deny database-like files and disable listings as defense in depth.
 
 ## Deployment responsibilities
@@ -20,6 +20,20 @@ Use HTTPS; store database and setup credentials outside public paths; grant writ
 Keep the PHP runtime patched as well. The PHP project's 2026-10-21 advisories CVE-2026-109618 and CVE-2026-109619 affect web-serving PHP runtimes; they do not establish a vulnerability in Barelytics code. Upgrade to PHP 8.2.35, 8.3.36, 8.4.27, or 8.5.12 as applicable, or confirm with the OS/LTS or hosting vendor that both fixes have been backported. The vendor may keep a different version string, so checking that string alone is not enough. Updating is the only complete mitigation. See [SECURITY.md](../SECURITY.md) for references and temporary, partial risk-reduction measures.
 
 There are no third-party runtime dependencies. Review PHP/PDO SQLite updates and any host-level dependencies. SQLite permits a single writer at a time; the short busy timeout may drop a count during contention, while the public page remains unaffected. Backups contain aggregate data and should be access-controlled and deleted according to the owner's retention policy.
+
+## Collector limits and release assembly
+
+The public collector is forgeable. User-Agent and Origin headers do not
+authenticate clients; classifications are declared or heuristic, never verified.
+Body/path limits and a bounded SQLite wait limit individual operations. They do
+not prevent distributed abuse or unbounded aggregate path cardinality. Configure
+web-server request/time/body limits and disk quotas without visitor-derived
+keys. Avoid logging request bodies and redact cookies at the hosting layer.
+
+The WordPress builder copies an explicit source manifest, refuses linked source
+entries, creates a fresh ZIP and replaces the output only after success. It never
+traverses operator storage. Release validation also rejects bootstrap/recovery
+tokens, databases and known secret formats; it is not a general secret detector.
 
 ## Administrator password recovery
 

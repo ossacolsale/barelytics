@@ -13,7 +13,8 @@ from pathlib import Path, PurePosixPath
 UI_FILES = {"index.html", "app.js", "admin.css", "config.js"}
 SENSITIVE_NAME = re.compile(
     r"(^|/)(\.env(?:\..*)?|\.git(?:/|$)|.*\.(?:sqlite3?|db|pem|key|p12|pfx)(?:-wal|-shm)?|"
-    r"id_rsa|admin[_-]?password|credentials(?:\.json)?|secrets?\.ya?ml)(?:$|/)", re.IGNORECASE
+    r"id_rsa|admin[_-]?password|credentials(?:\.json)?|secrets?\.ya?ml|"
+    r"(?:setup|reset)\.token|setup-token\.php|install\.lock)(?:$|/)", re.IGNORECASE
 )
 SECRET_CONTENT = re.compile(
     rb"(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"

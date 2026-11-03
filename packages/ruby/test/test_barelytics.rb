@@ -57,7 +57,7 @@ class BarelyticsTest < Minitest::Test
       raw.execute('INSERT INTO pageviews_daily(day,path,country,views) VALUES (?,?,?,?)', ['2000-01-01', '/expired', 'XX', 4])
       assert store.cleanup
       assert_equal 0, raw.get_first_value('SELECT COUNT(*) FROM pageviews_daily WHERE path=?', ['/expired'])
-      assert_equal 2, raw.get_first_value('SELECT COUNT(*) FROM schema_migrations')
+      assert_equal 3, raw.get_first_value('SELECT COUNT(*) FROM schema_migrations')
       raw.close
       store.close
       second = Barelytics::Store.new(data_directory: dir)
@@ -91,6 +91,84 @@ class BarelyticsTest < Minitest::Test
       status, = rack_request(app, 'POST', '/barelytics/admin/api/strict', body: { csrf: 'wrong' }.to_json, extra: { 'HTTP_X_ADMIN' => 'yes' })
       assert_equal 403, status
       store.close
+    end
+  end
+
+  def test_automation_vectors_and_lifecycle
+    vectors = JSON.parse(File.read(File.expand_path('../../../spec/test-vectors/automation.json', __dir__)))
+    vectors.each do |v|
+      actual = Barelytics.classify_user_agent(v['user_agent'], v.fetch('additional_patterns', []))
+      %w[category family identity automation].each { |key| assert_equal v[key], actual[key.to_sym] }
+      refute actual[:verified]
+    end
+    Dir.mktmpdir do |dir|
+      store = Barelytics::Store.new(data_directory: dir)
+      refute store.track_page_view(path: '/article', user_agent: 'GPTBot/1')
+      refute store.track_page_view(path: '/private/report', user_agent: 'GPTBot/1')
+      assert_equal 1, store.admin_data('automation')['total']
+      assert_equal 0, store.dashboard[:total]
+      raw = SQLite3::Database.new(store.database_path)
+      raw.execute("INSERT INTO automation_daily VALUES ('2000-01-01','/old','ai','openai',2)")
+      raw.execute("UPDATE settings SET value='invalid-cleanup-fixture' WHERE key='last_cleanup_at'")
+      assert store.track_page_view(path: '/fresh')
+      assert_equal 0, raw.get_first_value("SELECT COUNT(*) FROM automation_daily WHERE day='2000-01-01'")
+      store.update_privacy({ browser_collection: true }, acknowledged: true)
+      raw.execute("CREATE TRIGGER fail_dimension BEFORE INSERT ON dimensions_daily BEGIN SELECT RAISE(ABORT, 'fixture'); END")
+      refute store.track_page_view(path: '/interrupted')
+      assert_equal 0, raw.get_first_value("SELECT COUNT(*) FROM pageviews_daily WHERE path='/interrupted'")
+      raw.execute('DROP TRIGGER fail_dimension')
+      store.delete_all
+      assert_equal 0, store.admin_data('automation')['total']
+      raw.close
+      store.close
+    end
+  end
+
+  def test_shared_browser_protocol_and_page_dimensions
+    Dir.mktmpdir do |dir|
+      store = Barelytics::Store.new(data_directory: dir)
+      app = Barelytics::RackTrack.new(->(_env) { [404, {}, []] }, store: store)
+      vectors = JSON.parse(File.read(File.expand_path('../../../spec/test-vectors/protocol.json', __dir__)))
+      vectors.each_with_index do |v, index|
+        store.update_privacy({ referrer_collection: v['referrer_collection'] == true }, acknowledged: true)
+        raw = if v['raw_hex'] then [v['raw_hex']].pack('H*') elsif v['body_bytes'] then 'x' * v['body_bytes'] elsif v['body'].is_a?(String) then v['body'] else JSON.generate(v.fetch('body', {})) end
+        raw = raw.ljust(v['body_size']) if v['body_size']
+        status, headers, = rack_request(app, v['method'], '/barelytics/track', body: raw, extra: { 'CONTENT_TYPE' => v.fetch('content_type', 'application/json'), 'HTTP_REFERER' => 'https://beacon.test/current?private' })
+        assert_equal v['status'], status, "vector #{index}"
+        assert_equal 'no-store', headers['Cache-Control']
+        refute headers.key?('Set-Cookie')
+      end
+      store.update_privacy(Barelytics::DIMENSIONS.to_h { |key| [key, true] }, acknowledged: true)
+      store.track_page_view(path: '/one', user_agent: 'Mozilla/5.0 Firefox/1 Windows', country: 'it', referrer: 'https://one.test/private?q=secret')
+      store.track_page_view(path: '/two', user_agent: 'Mozilla/5.0 Chrome/1 Android Mobile', country: 'us', referrer: 'https://two.test/private?q=secret')
+      { 'country' => 'IT', 'referrer' => 'one.test', 'browser' => 'Firefox', 'device' => 'Desktop', 'os' => 'Windows' }.each do |dimension, expected|
+        assert_equal [{ 'value' => expected, 'views' => 1 }], store.admin_data('dimensions', 'dimension' => dimension, 'path' => '/one')['rows']
+        assert_raises(ArgumentError) { store.admin_data('dimensions', 'dimension' => dimension, 'path' => 'https://bad.test') }
+      end
+      store.return_to_strict_mode
+      assert_equal %w[country referrer browser device os], store.audit[:historical_dimensions]
+      store.close
+    end
+  end
+
+  def test_legacy_migration_schema_audit_and_future_guard
+    Dir.mktmpdir do |dir|
+      raw = SQLite3::Database.new(File.join(dir, 'analytics.sqlite'))
+      raw.execute_batch(File.read(File.expand_path('../../../spec/test-vectors/legacy-v2.sql', __dir__)))
+      store = Barelytics::Store.new(data_directory: dir)
+      assert_equal 30, store.configuration[:retention_days]
+      assert_equal 7, raw.get_first_value("SELECT views FROM pageviews_daily WHERE path='/legacy'")
+      assert_equal 'fixture-unchanged-credential', raw.get_first_value("SELECT value FROM settings WHERE key='admin_password_hash'")
+      assert_equal 3, raw.get_first_value('SELECT COUNT(*) FROM schema_migrations')
+      raw.execute('CREATE TABLE request_log(user_agent TEXT)')
+      assert_equal 'FAIL', store.audit[:result]
+      raw.execute('DROP TABLE request_log')
+      assert_equal 'PASS', store.audit[:result]
+      raw.execute("INSERT INTO schema_migrations VALUES (99,'fixture')")
+      assert_raises(ArgumentError) { Barelytics::Store.new(data_directory: dir) }
+      assert_equal 7, raw.get_first_value("SELECT views FROM pageviews_daily WHERE path='/legacy'")
+      store.close
+      raw.close
     end
   end
 

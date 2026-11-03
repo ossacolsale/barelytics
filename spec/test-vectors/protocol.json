@@ -1,8 +1,206 @@
 [
-  {"method":"POST","body":{"path":"/example.html"},"status":204},
-  {"method":"POST","body":{"path":"/article?email=private@example.test"},"status":400},
-  {"method":"POST","body":{"path":"/article","visitor_id":"must-reject"},"status":400},
-  {"method":"POST","body":"{","status":400},
-  {"method":"GET","status":405},
-  {"method":"POST","body_bytes":8193,"status":413}
+  {
+    "method": "POST",
+    "body": {
+      "path": "/example.html"
+    },
+    "status": 204
+  },
+  {
+    "method": "POST",
+    "body": {
+      "path": "/article?email=private@example.test"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "body": {
+      "path": "/article",
+      "visitor_id": "must-reject"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "body": "{",
+    "status": 400
+  },
+  {
+    "method": "GET",
+    "status": 405
+  },
+  {
+    "method": "POST",
+    "body_bytes": 8193,
+    "status": 413
+  },
+  {
+    "method": "POST",
+    "content_type": "text/plain",
+    "body": {
+      "path": "/plain"
+    },
+    "status": 415
+  },
+  {
+    "method": "POST",
+    "content_type": "",
+    "body": {
+      "path": "/missing-type"
+    },
+    "status": 415
+  },
+  {
+    "method": "POST",
+    "content_type": "Application/JSON; charset=utf-8",
+    "body": {
+      "path": "/padded"
+    },
+    "body_size": 8192,
+    "status": 204
+  },
+  {
+    "method": "POST",
+    "raw_hex": "7b2270617468223a222f626164ff227d",
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "body": {
+      "path": "/v2",
+      "version": 2,
+      "referrer_host": "example.test"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "body": {
+      "path": "/v2",
+      "version": 2,
+      "referrer_host": "example.test"
+    },
+    "status": 204
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "body": {
+      "path": "/v2",
+      "version": 2.0,
+      "referrer_host": null
+    },
+    "status": 204
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "body": {
+      "path": "/v2",
+      "version": true,
+      "referrer_host": null
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "body": {
+      "path": "/v2",
+      "version": 2,
+      "referrer_host": "https://example.test/private?q=secret"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "body": {
+      "path": "/v2",
+      "version": 2,
+      "referrer_host": "127.0.0.1"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "body": {
+      "path": "/v2",
+      "version": 2,
+      "referrer_host": "example.test\n"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "body": {
+      "path": "/v2",
+      "version": 2,
+      "referrer_host": "example.test",
+      "visitor_id": "reject"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "body": {
+      "path": "/bad%ff"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "raw_hex": "7b2270617468223a222f6261645c7564383030227d",
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "raw_hex": "efbbbf7b2270617468223a222f626f6d227d",
+    "referrer_collection": true,
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "raw_hex": "7b2270617468223a222f6261642d6e756d626572222c2276657273696f6e223a30322c2272656665727265725f686f7374223a6e756c6c7d",
+    "referrer_collection": true,
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "raw_hex": "0b7b2270617468223a222f6261642d7370616365227d",
+    "referrer_collection": true,
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "body": {
+      "path": "/v2",
+      "version": 2,
+      "referrer_host": "0x7f000001"
+    },
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "raw_hex": "7b2270617468223a5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b305d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d7d",
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "raw_hex": "7b2270617468223a222f7632222c2276657273696f6e223a3165393939392c2272656665727265725f686f7374223a6e756c6c7d",
+    "status": 400
+  },
+  {
+    "method": "POST",
+    "referrer_collection": true,
+    "raw_hex": "7b2270617468223a222f6261645c752b303431227d",
+    "status": 400
+  }
 ]

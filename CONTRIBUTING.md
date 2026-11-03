@@ -8,6 +8,8 @@ PHP 8.2 is in upstream security-only support through 2026-12-31. The first relea
 
 ```sh
 php tests/run.php
+php tests/wordpress.php
+php tests/sqlite-concurrency.php
 bash tests/integration.sh
 find public/barelytics -name '*.php' -print0 | xargs -0 -n1 php -l
 ```
@@ -23,6 +25,8 @@ Before handing off every code revision, inspect the complete diff and run the sa
 ```sh
 find public/barelytics -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/run.php
+php tests/wordpress.php
+php tests/sqlite-concurrency.php
 bash tests/integration.sh
 git diff --check
 ```
@@ -34,3 +38,10 @@ Run the database-backed checks with PDO SQLite enabled, as in the CI workflow. I
 Contributors must not add new tracking, identifiers, third-party integrations, or data collection without documenting the privacy impact. Changes to storage, retention, authentication, request validation, or public endpoints should include relevant tests and update the security and privacy documentation.
 
 Open an issue for substantial changes, then submit a focused pull request with a clear description and test results. Do not include databases, real analytics data, credentials, or setup tokens.
+
+For shared contract/runtime changes, stage the local UI with
+`sh scripts/stage-admin-ui.sh`, run each affected native suite from its package
+README and run `python3 -m unittest discover -s scripts -p 'test_*.py' -v`.
+Automation rule changes require `python3 scripts/generate-automation.py`; verify
+parity with `--check`. The process-concurrency check requires PDO SQLite and
+`pcntl`; report its explicit unavailable message if the environment lacks them.

@@ -8,10 +8,11 @@ Every request except the HTML and static asset routes must pass the host authori
 | --- | --- |
 | `GET /api/session` | Authenticated state, CSRF token where needed, capabilities, retention |
 | `GET /api/dashboard?period=&bucket=` | Totals, active paths, daily average, timeline, top paths |
+| `GET /api/automation?period=&bucket=&page=&per_page=` | Observed automation total, timeline, finite categories/families and paginated path totals; identities are unverified |
 | `GET /api/pages?period=&page=&per_page=` | Paginated page totals |
 | `GET /api/daily?period=&page=&per_page=` | Paginated UTC day × path totals |
 | `GET /api/page?path=&period=&bucket=` | One normalized path's total and timeline |
-| `GET /api/dimensions?dimension=&period=&page=&per_page=` | Dimension state and grouped totals; disabled dimensions return `enabled: false` and no rows |
+| `GET /api/dimensions?dimension=&period=&page=&per_page=&path=` | Dimension state and grouped totals, optionally filtered to one normalized page; disabled dimensions return `enabled: false` and no rows |
 | `GET /api/privacy` | Effective settings, retention and profile |
 | `POST /api/privacy` | Save settings; enabling dimensions requires `confirmation: "yes"` |
 | `POST /api/strict` | Disable optional dimensions |
@@ -26,3 +27,11 @@ Every request except the HTML and static asset routes must pass the host authori
 Period values are 7, 30, 90, 180, or 365 days and must not exceed the configured retention. Buckets are `day`, `week`, or `month`. Pagination is bounded to 50 rows per page maximum 10,000 pages. Path inputs must pass the same normalization contract as tracking. Unknown dimensions, malformed values, unsupported actions, and invalid confirmations are rejected. Delete and settings mutation responses include refreshed effective configuration or require the UI to refetch it.
 
 Adapters may use framework-specific routes and CSRF transport, but must preserve these meanings and equivalent normalized data. Until a capability is implemented, its capability flag must be false and the UI must display an unavailable state rather than fabricate data.
+
+Omitting `path` preserves site-wide reporting. Supplying an invalid path returns
+`400`, even for a disabled dimension. Disabled state describes current
+collection; history is retained. Enabled reports with no rows mean no observed
+data, not a direct visit or a zero-valued inferred dimension. Country `XX` and
+category `Unknown` mean unavailable/unknown (legacy `XX` can also reflect Strict
+collection). No historical dimensions are backfilled. Audits expose
+`historical_dimensions` separately from current settings.

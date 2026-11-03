@@ -8,13 +8,16 @@ ini_set('display_errors', '0');
 use PDO;
 use Throwable;
 
+require_once __DIR__ . '/Automation.php';
+
 const DEFAULT_BOT_PATTERNS = [
     'bot', 'crawler', 'spider', 'slurp', 'bingpreview', 'headless', 'lighthouse',
     'pagespeed', 'semrush', 'ahrefsbot', 'mj12bot', 'dotbot', 'facebookexternalhit',
     'twitterbot', 'linkedinbot', 'discordbot', 'telegrambot', 'whatsapp', 'petalbot',
     'yandex', 'baiduspider', 'bytespider', 'duckduckbot', 'applebot', 'googlebot', 'bingbot',
 ];
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
+const CONTRACT_VERSION = 2;
 const APPLICATION_VERSION = '1.1.0';
 const PRIVACY_DEFAULTS = [
     'country_collection' => false,
@@ -42,7 +45,8 @@ function normalizePath(string $path, int $maxBytes = 512): ?string
     }
     $decodedPath = rawurldecode($path);
     if (preg_match('//u', $decodedPath) !== 1 || preg_match('/[\x00-\x1F\x7F]/', $decodedPath)
-        || str_contains($decodedPath, '@') || str_contains($decodedPath, '?') || str_contains($decodedPath, '#')) return null;
+        || strpbrk($decodedPath, '@?#\\%') !== false || substr_count($decodedPath, '/') !== substr_count($path, '/')
+        || preg_match('~(?:^|/)\.{1,2}(?:/|$)~', $decodedPath)) return null;
     // Collapse common numeric and UUID-style record identifiers before aggregation.
     $identifierPattern = '~(?<=/)(?:[0-9]{6,}|[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{16,}|[A-Za-z0-9_-]{32,})(?=/|$)~i';
     if ($decodedPath !== $path && preg_match($identifierPattern, $decodedPath)) return null;
@@ -53,12 +57,7 @@ function normalizePath(string $path, int $maxBytes = 512): ?string
 
 function isBot(string $userAgent, array $patterns = DEFAULT_BOT_PATTERNS): bool
 {
-    foreach ($patterns as $pattern) {
-        if (is_string($pattern) && $pattern !== '' && stripos($userAgent, $pattern) !== false) {
-            return true;
-        }
-    }
-    return false;
+    return classifyUserAgent($userAgent, $patterns === DEFAULT_BOT_PATTERNS ? [] : $patterns)['automation'];
 }
 
 function referrerHost(string $referer): ?string
@@ -72,10 +71,30 @@ function referrerHost(string $referer): ?string
     }
     $host = strtolower(rtrim($parts['host'], '.'));
     if ($host === '' || isset($parts['user']) || isset($parts['pass']) || filter_var($host, FILTER_VALIDATE_IP) !== false
-        || !preg_match('/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $host)) {
+        || !validReferrerHostname($host)) {
         return null;
     }
     return $host;
+}
+
+/** Protocol v2 accepts only a browser-minimized, canonical DNS hostname. */
+function validReferrerHostname(mixed $value): bool
+{
+    return is_string($value) && !preg_match('/^(?:[0-9]+|0x[0-9a-f]+)(?:\.(?:[0-9]+|0x[0-9a-f]+))*$/D', $value)
+        && preg_match('/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/D', $value) === 1;
+}
+
+function collectorPayload(string $body): ?array
+{
+    $object = json_decode($body);
+    if (!$object instanceof \stdClass) return null;
+    $payload = get_object_vars($object);
+    $keys = array_keys($payload); sort($keys);
+    $extended = $keys === ['path', 'referrer_host', 'version'] && in_array($payload['version'] ?? null, [2, 2.0], true);
+    if ($keys !== ['path'] && !$extended) return null;
+    if (!is_string($payload['path'] ?? null) || ($path = normalizePath($payload['path'])) === null) return null;
+    if ($extended && $payload['referrer_host'] !== null && !validReferrerHostname($payload['referrer_host'])) return null;
+    return ['path' => $path, 'version' => $extended ? 2 : 1, 'referrer_host' => $payload['referrer_host'] ?? null];
 }
 
 function escape(string $value): string
@@ -377,8 +396,12 @@ function migrateDatabase(PDO $db): int
             setSetting($db, 'application_version', APPLICATION_VERSION);
             setSetting($db, 'last_migration_at', gmdate('Y-m-d H:i:s'));
         },
+        3 => static function (PDO $db): void {
+            $db->exec('CREATE TABLE IF NOT EXISTS automation_daily(day TEXT NOT NULL,path TEXT NOT NULL,category TEXT NOT NULL,family TEXT NOT NULL,requests INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,category,family))');
+        },
     ];
     $applied = (int) queryColumn($db, 'SELECT COALESCE(MAX(version), 0) FROM schema_migrations');
+    if ($applied > CURRENT_SCHEMA_VERSION) throw new \RuntimeException('The database requires a newer Barelytics runtime.');
     foreach ($migrations as $version => $migration) {
         if ($version <= $applied) continue;
         $db->exec('BEGIN IMMEDIATE');
@@ -420,7 +443,7 @@ function schemaVersion(PDO $db): int
 /** Canonical effective configuration shared by tracking, administration and audit. Invalid values fail closed. */
 function effectivePrivacyConfig(PDO $db): array
 {
-    $config = ['pageviews' => true, 'retention_days' => 180];
+    $config = ['pageviews' => true, 'retention_days' => 180, 'automation_collection' => true, 'daily_reach_available' => false, 'reporting_day' => 'UTC'];
     foreach (PRIVACY_DEFAULTS as $key => $default) {
         try { $value = setting($db, $key, '0'); }
         catch (Throwable) { $value = '0'; }
@@ -453,7 +476,7 @@ function privacyFingerprint(PDO $db): string
 {
     $config = effectivePrivacyConfig($db);
     ksort($config);
-    return hash('sha256', json_encode(['application_version' => APPLICATION_VERSION, 'schema_version' => schemaVersion($db), 'configuration' => $config], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+    return hash('sha256', json_encode(['application_version' => APPLICATION_VERSION, 'contract_version' => CONTRACT_VERSION, 'schema_version' => schemaVersion($db), 'configuration' => $config], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
 }
 
 function recordPrivacyConfiguration(PDO $db): void
@@ -470,10 +493,12 @@ function recordPrivacyConfiguration(PDO $db): void
 
 function pathIsExcluded(string $path, array $patterns): bool
 {
+    $path = rawurldecode($path);
     foreach ($patterns as $pattern) {
-        $quoted = preg_quote($pattern, '~');
-        $regex = '~^' . str_replace('\\*', '.*', $quoted) . '$~';
-        if (preg_match($regex, $path)) return true;
+        if (str_ends_with($pattern, '/*')) {
+            $base = substr($pattern, 0, -2);
+            if ($path === $base || str_starts_with($path, $base . '/')) return true;
+        } elseif ($path === $pattern) return true;
     }
     return false;
 }
@@ -481,34 +506,28 @@ function pathIsExcluded(string $path, array $patterns): bool
 function schemaAudit(PDO $db, string $profile, ?array $config = null): array
 {
     $config ??= [];
-    $allowed = ['day', 'path', 'views', 'country'];
-    $tables = ['pageviews_daily', 'referrers_daily', 'dimensions_daily'];
+    $expected = [
+        'pageviews_daily' => ['day','path','country','views'],
+        'referrers_daily' => ['day','path','referrer_host','views'],
+        'dimensions_daily' => ['day','path','dimension','value','views'],
+        'automation_daily' => ['day','path','category','family','requests'],
+        'settings' => ['key','value'],
+        'schema_migrations' => ['version','applied_at'],
+        'privacy_configuration_history' => ['timestamp','profile','effective_configuration_json','configuration_hash','application_version','schema_version'],
+    ];
+    $tables = array_keys($expected);
     $unexpected = [];
     $tableColumns = [];
-    foreach ($tables as $table) {
-        if (!tableExists($db, $table)) {
-            $required = $table === 'pageviews_daily'
-                || ($table === 'referrers_daily' && !empty($config['referrer_collection']))
-                || ($table === 'dimensions_daily' && (!empty($config['browser_collection']) || !empty($config['device_collection']) || !empty($config['os_collection'])));
-            if ($required) $unexpected[] = 'missing table ' . $table;
-            continue;
-        }
+    foreach ($expected as $table => $required) {
+        if (!tableExists($db, $table)) { $unexpected[] = 'missing table ' . $table; continue; }
         $columns = queryRows($db, 'PRAGMA table_info(' . $table . ')');
         $tableColumns[$table] = array_map(static fn($column) => strtolower((string) $column['name']), $columns);
-        $required = $table === 'dimensions_daily' ? ['day','path','dimension','value','views']
-            : ($table === 'referrers_daily' ? ['day','path','referrer_host','views'] : ['day','path','country','views']);
         foreach ($required as $column) if (!in_array($column, $tableColumns[$table], true)) $unexpected[] = 'missing column ' . $table . '.' . $column;
-        foreach ($columns as $column) {
-            $name = strtolower((string) $column['name']);
-            $valid = $table === 'dimensions_daily' ? in_array($name, ['day','path','dimension','value','views'], true)
-                : ($table === 'referrers_daily' ? in_array($name, ['day','path','referrer_host','views'], true) : in_array($name, $allowed, true));
-            if (!$valid) $unexpected[] = $table . '.' . $name;
-        }
+        foreach ($tableColumns[$table] as $column) if (!in_array($column, $required, true)) $unexpected[] = $table . '.' . $column;
     }
     $allTables = queryRows($db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'", [], PDO::FETCH_COLUMN);
     foreach ($allTables as $table) {
-        if (in_array($table, ['pageviews_daily','referrers_daily','dimensions_daily','privacy_configuration_history','settings','schema_migrations','maintenance_state','schema_version'], true)) continue;
-        $unexpected[] = 'unrecognized table ' . (string) $table;
+        if (!isset($expected[$table]) && !in_array($table, ['maintenance_state','schema_version'], true)) $unexpected[] = 'unrecognized table ' . (string) $table;
         $quotedTable = '"' . str_replace('"', '""', (string) $table) . '"';
         $columns = queryRows($db, 'PRAGMA table_info(' . $quotedTable . ')');
         foreach ($columns as $column) {
@@ -516,34 +535,31 @@ function schemaAudit(PDO $db, string $profile, ?array $config = null): array
             if (preg_match('/(^|_)(ip|ip_address|visitor_id|user_id|session_id|cookie_id|fingerprint|user_agent|screen_width|screen_height)(_|$)/', $name)) $unexpected[] = $table . '.' . $name;
         }
     }
-    if (isset($tableColumns['pageviews_daily']) && in_array('country', $tableColumns['pageviews_daily'], true) && empty($config['country_collection']) && (int) queryColumn($db, "SELECT COUNT(*) FROM pageviews_daily WHERE country <> 'XX'") > 0) $unexpected[] = 'country aggregate data exists while country collection is disabled';
-    if (tableExists($db, 'referrers_daily') && empty($config['referrer_collection']) && (int) queryColumn($db, 'SELECT COUNT(*) FROM referrers_daily') > 0) $unexpected[] = 'referrer aggregate data exists while referrer collection is disabled';
+    $historical = [];
+    if (isset($tableColumns['pageviews_daily']) && in_array('country', $tableColumns['pageviews_daily'], true) && empty($config['country_collection']) && queryColumn($db, "SELECT 1 FROM pageviews_daily WHERE country <> 'XX' LIMIT 1") !== false) $historical[] = 'country';
+    if (tableExists($db, 'referrers_daily') && empty($config['referrer_collection']) && queryColumn($db, 'SELECT 1 FROM referrers_daily LIMIT 1') !== false) $historical[] = 'referrer';
     if (isset($tableColumns['dimensions_daily']) && in_array('dimension', $tableColumns['dimensions_daily'], true)) {
         foreach (['browser_collection' => 'browser', 'device_collection' => 'device', 'os_collection' => 'os'] as $flag => $dimension) {
-            if (empty($config[$flag]) && (int) queryColumn($db, 'SELECT COUNT(*) FROM dimensions_daily WHERE dimension = :dimension', [':dimension' => $dimension]) > 0) $unexpected[] = $dimension . ' aggregate data exists while collection is disabled';
+            if (empty($config[$flag]) && queryColumn($db, 'SELECT 1 FROM dimensions_daily WHERE dimension = :dimension LIMIT 1', [':dimension' => $dimension]) !== false) $historical[] = $dimension;
         }
         if ((int) queryColumn($db, "SELECT COUNT(*) FROM dimensions_daily WHERE dimension NOT IN ('browser','device','os')") > 0) $unexpected[] = 'unsupported dimension data exists';
     }
-    if (tableExists($db, 'privacy_configuration_history')) {
-        $columns = queryRows($db, 'PRAGMA table_info(privacy_configuration_history)');
-        foreach ($columns as $column) if (!in_array(strtolower((string) $column['name']), ['timestamp','profile','effective_configuration_json','configuration_hash','application_version','schema_version'], true)) $unexpected[] = 'privacy_configuration_history.' . $column['name'];
-    } else $unexpected[] = 'missing table privacy_configuration_history';
-    return ['status' => $unexpected ? 'FAIL' : 'PASS', 'tables' => $tables, 'unexpected' => $unexpected];
+    return ['status' => $unexpected ? 'FAIL' : 'PASS', 'tables' => $tables, 'unexpected' => $unexpected, 'historical_dimensions' => $historical];
 }
 
 function runtimePrivacyChecks(): array
 {
-    $runtimeFiles = [dirname(__DIR__) . '/track.js', dirname(__DIR__) . '/track.php', __FILE__];
+    $runtimeFiles = [dirname(__DIR__) . '/track.js', dirname(__DIR__) . '/track.php', __FILE__, __DIR__ . '/Automation.php'];
     $runtimeCode = array_map(static fn($file) => is_file($file) ? (string) file_get_contents($file) : '', $runtimeFiles);
     $runtimeAvailable = !in_array('', $runtimeCode, true);
-    $remotePattern = '~https?' . ':' . '/' . '/~i';
+    $remotePattern = '~https?' . ':' . '/' . '/[a-z0-9]~i';
     $remoteEndpoint = false;
     $remoteClient = false;
     foreach ($runtimeCode as $source) {
         if (preg_match($remotePattern, $source)) $remoteEndpoint = true;
         if (preg_match('/\b(?:curl_init|fsockopen|pfsockopen)\s*\(/i', $source)) $remoteClient = true;
     }
-    $localTracker = $runtimeAvailable && str_contains($runtimeCode[0], "new URL('track.php', current.src)")
+    $localTracker = $runtimeAvailable && str_contains($runtimeCode[0], "current.src") && str_contains($runtimeCode[0], "endpoint.origin !== window.location.origin")
         && str_contains($runtimeCode[0], 'navigator.sendBeacon') && str_contains($runtimeCode[0], 'fetch(endpoint');
     return [
         ['name' => 'Same-origin tracker endpoint', 'status' => $localTracker && !$remoteEndpoint ? 'PASS' : 'FAIL'],
@@ -650,10 +666,10 @@ function runSelfTest(PDO $db): bool
 function cleanRetentionBatch(PDO $db, ?int $retention = null, int $limit = 1000): bool
 {
     $retention ??= effectivePrivacyConfig($db)['retention_days'];
-    $retention = max(30, min(365, $retention));
+    $retention = in_array($retention, [30, 90, 180, 365], true) ? $retention : 180;
     $limit = max(1, min(1000, $limit));
     $cutoff = gmdate('Y-m-d', time() - $retention * 86400);
-    $db->beginTransaction();
+    $db->exec('BEGIN IMMEDIATE');
     try {
         $pageCount = executeStatement($db, 'DELETE FROM pageviews_daily WHERE rowid IN (SELECT rowid FROM pageviews_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]);
         $referrerCount = executeStatement($db, 'DELETE FROM referrers_daily WHERE rowid IN (SELECT rowid FROM referrers_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]);
@@ -661,24 +677,27 @@ function cleanRetentionBatch(PDO $db, ?int $retention = null, int $limit = 1000)
         if (tableExists($db, 'dimensions_daily')) {
             $dimensionCount = executeStatement($db, 'DELETE FROM dimensions_daily WHERE rowid IN (SELECT rowid FROM dimensions_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]);
         }
-        $complete = $pageCount < $limit && $referrerCount < $limit && $dimensionCount < $limit;
+        $automationCount = tableExists($db, 'automation_daily') ? executeStatement($db, 'DELETE FROM automation_daily WHERE rowid IN (SELECT rowid FROM automation_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]) : 0;
+        $complete = $automationCount < $limit && $pageCount < $limit && $referrerCount < $limit && $dimensionCount < $limit;
         setSetting($db, 'last_cleanup_at', gmdate('Y-m-d H:i:s'));
-        $db->commit();
+        setSetting($db, 'cleanup_pending', $complete ? '0' : '1');
+        $db->exec('COMMIT');
         return $complete;
     } catch (Throwable $error) {
-        if ($db->inTransaction()) $db->rollBack();
+        try { $db->exec('ROLLBACK'); } catch (Throwable) { }
         throw $error;
     }
 }
 
 function runScheduledCleanupIfDue(PDO $db): void
 {
-    if (schemaVersion($db) !== CURRENT_SCHEMA_VERSION || !tableExists($db, 'settings')) return;
-    try { $last = setting($db, 'last_cleanup_at', ''); }
-    catch (Throwable) { return; }
-    $lastTime = $last === '' ? 0 : (strtotime($last . ' UTC') ?: 0);
-    if (time() - $lastTime < 86400) return;
-    try { cleanRetentionBatch($db); } catch (Throwable) { /* Analytics maintenance must not affect a page. */ }
+    try {
+        if (schemaVersion($db) !== CURRENT_SCHEMA_VERSION || !tableExists($db, 'settings')) return;
+        $last = setting($db, 'last_cleanup_at', '');
+        $lastTime = $last === '' ? 0 : (strtotime($last . ' UTC') ?: 0);
+        if (time() >= $lastTime && time() - $lastTime < 86400 && setting($db, 'cleanup_pending', '0') !== '1') return;
+        cleanRetentionBatch($db);
+    } catch (Throwable) { /* Analytics maintenance must not affect a page. */ }
 }
 
 function requestCountry(): string
@@ -689,43 +708,58 @@ function requestCountry(): string
     return is_string($value) && preg_match('/^[A-Za-z]{2}$/', $value) ? strtoupper($value) : 'XX';
 }
 
-function recordPageview(PDO $db, string $path, string $country = 'XX', ?string $host = null, array $dimensions = []): void
+function recordPageview(PDO $db, string $path, string $country = 'XX', ?string $host = null, array $dimensions = [], ?int $eventTime = null): void
 {
-    $db->beginTransaction();
+    $day = gmdate('Y-m-d', $eventTime ?? time());
+    $db->exec('BEGIN IMMEDIATE');
     try {
-        executeStatement($db, 'INSERT INTO pageviews_daily (day, path, country, views) VALUES (:day, :path, :country, 1) ON CONFLICT(day, path, country) DO UPDATE SET views = views + 1', [':day' => gmdate('Y-m-d'), ':path' => $path, ':country' => $country]);
+        executeStatement($db, 'INSERT INTO pageviews_daily (day, path, country, views) VALUES (:day, :path, :country, 1) ON CONFLICT(day, path, country) DO UPDATE SET views = views + 1', [':day' => $day, ':path' => $path, ':country' => $country]);
         if ($host !== null) {
-            executeStatement($db, 'INSERT INTO referrers_daily (day, path, referrer_host, views) VALUES (:day, :path, :host, 1) ON CONFLICT(day, path, referrer_host) DO UPDATE SET views = views + 1', [':day' => gmdate('Y-m-d'), ':path' => $path, ':host' => $host]);
+            executeStatement($db, 'INSERT INTO referrers_daily (day, path, referrer_host, views) VALUES (:day, :path, :host, 1) ON CONFLICT(day, path, referrer_host) DO UPDATE SET views = views + 1', [':day' => $day, ':path' => $path, ':host' => $host]);
         }
         foreach ($dimensions as $dimension => $value) {
             if (in_array($dimension, ['browser', 'device', 'os'], true) && is_string($value) && $value !== '') {
-                executeStatement($db, 'INSERT INTO dimensions_daily (day, path, dimension, value, views) VALUES (:day, :path, :dimension, :value, 1) ON CONFLICT(day, path, dimension, value) DO UPDATE SET views = views + 1', [':day' => gmdate('Y-m-d'), ':path' => $path, ':dimension' => $dimension, ':value' => $value]);
+                executeStatement($db, 'INSERT INTO dimensions_daily (day, path, dimension, value, views) VALUES (:day, :path, :dimension, :value, 1) ON CONFLICT(day, path, dimension, value) DO UPDATE SET views = views + 1', [':day' => $day, ':path' => $path, ':dimension' => $dimension, ':value' => $value]);
             }
         }
-        $db->commit();
+        $db->exec('COMMIT');
     } catch (Throwable $e) {
-        if ($db->inTransaction()) $db->rollBack();
+        try { $db->exec('ROLLBACK'); } catch (Throwable) { }
         throw $e;
     }
 }
 
-function countRequest(PDO $db, string $path): bool
+function countRequest(PDO $db, string $path, ?string $navigationReferrer = null, bool $browserCollector = false): bool
 {
+    $eventTime = time();
+    $path = normalizePath($path);
+    if ($path === null) return false;
     if (schemaVersion($db) !== CURRENT_SCHEMA_VERSION) return false;
     $config = effectivePrivacyConfig($db);
     if (pathIsExcluded($path, $config['path_exclusions'])) return false;
-    $patterns = array_merge(DEFAULT_BOT_PATTERNS, $config['bot_patterns']);
-    if (isBot((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), $patterns)) return false;
+    $classification = classifyUserAgent((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), $config['bot_patterns']);
+    if ($classification['automation']) {
+        $db->exec('BEGIN IMMEDIATE');
+        try {
+            executeStatement($db, 'INSERT INTO automation_daily(day,path,category,family,requests) VALUES (:day,:path,:category,:family,1) ON CONFLICT(day,path,category,family) DO UPDATE SET requests=requests+1', [':day' => gmdate('Y-m-d', $eventTime), ':path' => $path, ':category' => $classification['category'], ':family' => $classification['family']]);
+            $db->exec('COMMIT');
+        } catch (Throwable $error) {
+            try { $db->exec('ROLLBACK'); } catch (Throwable) { }
+            throw $error;
+        }
+        return false;
+    }
     $country = $config['country_collection'] ? requestCountry() : 'XX';
-    $host = $config['referrer_collection'] ? referrerHost((string) ($_SERVER['HTTP_REFERER'] ?? '')) : null;
+    $host = $config['referrer_collection'] ? referrerHost($navigationReferrer ?? ($browserCollector ? '' : (string) ($_SERVER['HTTP_REFERER'] ?? ''))) : null;
     $dimensions = [];
     if ($config['browser_collection'] || $config['device_collection'] || $config['os_collection']) {
         $ua = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
         if ($config['browser_collection']) $dimensions['browser'] = str_contains($ua, 'Firefox/') ? 'Firefox' : ((str_contains($ua, 'Edg/') || str_contains($ua, 'Edge/')) ? 'Edge' : ((str_contains($ua, 'Chrome/')) ? 'Chrome' : ((str_contains($ua, 'Safari/')) ? 'Safari' : 'Other')));
         if ($config['os_collection']) $dimensions['os'] = stripos($ua, 'Windows') !== false ? 'Windows' : (stripos($ua, 'Android') !== false ? 'Android' : (stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false ? 'iOS' : (stripos($ua, 'Mac OS') !== false ? 'macOS' : (stripos($ua, 'Linux') !== false ? 'Linux' : 'Other'))));
-        if ($config['device_collection']) $dimensions['device'] = stripos($ua, 'Tablet') !== false || stripos($ua, 'iPad') !== false ? 'tablet' : (stripos($ua, 'Mobile') !== false || stripos($ua, 'Android') !== false || stripos($ua, 'iPhone') !== false ? 'mobile' : 'desktop');
+        if ($config['device_collection']) $dimensions['device'] = stripos($ua, 'Tablet') !== false || stripos($ua, 'iPad') !== false ? 'Tablet' : (stripos($ua, 'Mobile') !== false || stripos($ua, 'Android') !== false || stripos($ua, 'iPhone') !== false ? 'Mobile' : 'Desktop');
     }
-    recordPageview($db, $path, $country, $host, $dimensions);
+    if (trim((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')) === '') $dimensions = array_map(static fn() => 'Unknown', $dimensions);
+    recordPageview($db, $path, $country, $host, $dimensions, $eventTime);
     return true;
 }
 
@@ -765,13 +799,10 @@ function track(): void
         if ($path === null) return;
         $db = connectDatabase();
         countRequest($db, $path);
-        if (function_exists('fastcgi_finish_request')) {
-            register_shutdown_function(static function () use ($db): void {
-                if (!function_exists('fastcgi_finish_request')) return;
-                fastcgi_finish_request();
-                runScheduledCleanupIfDue($db);
-            });
-        }
+        register_shutdown_function(static function () use ($db): void {
+            if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+            runScheduledCleanupIfDue($db);
+        });
     } catch (Throwable) {
         // Analytics failures must not break the host application's response.
     }

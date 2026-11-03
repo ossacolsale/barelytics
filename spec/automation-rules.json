@@ -1,0 +1,253 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "category": "ai",
+      "family": "openai",
+      "tokens": [
+        "GPTBot",
+        "OAI-SearchBot",
+        "ChatGPT-User"
+      ]
+    },
+    {
+      "category": "ai",
+      "family": "anthropic",
+      "tokens": [
+        "ClaudeBot",
+        "Claude-User",
+        "Claude-SearchBot"
+      ]
+    },
+    {
+      "category": "ai",
+      "family": "perplexity",
+      "tokens": [
+        "PerplexityBot",
+        "Perplexity-User"
+      ]
+    },
+    {
+      "category": "search",
+      "family": "google",
+      "tokens": [
+        "Googlebot"
+      ]
+    },
+    {
+      "category": "search",
+      "family": "bing",
+      "tokens": [
+        "bingbot",
+        "bingpreview"
+      ]
+    },
+    {
+      "category": "search",
+      "family": "duckduckgo",
+      "tokens": [
+        "DuckDuckBot"
+      ]
+    },
+    {
+      "category": "search",
+      "family": "apple",
+      "tokens": [
+        "Applebot"
+      ]
+    },
+    {
+      "category": "search",
+      "family": "yandex",
+      "tokens": [
+        "YandexBot",
+        "YandexImages"
+      ]
+    },
+    {
+      "category": "search",
+      "family": "baidu",
+      "tokens": [
+        "Baiduspider"
+      ]
+    },
+    {
+      "category": "search",
+      "family": "petal",
+      "tokens": [
+        "PetalBot"
+      ]
+    },
+    {
+      "category": "search",
+      "family": "yahoo",
+      "tokens": [
+        "Slurp"
+      ]
+    },
+    {
+      "category": "social",
+      "family": "facebook",
+      "tokens": [
+        "facebookexternalhit",
+        "Facebot"
+      ]
+    },
+    {
+      "category": "social",
+      "family": "twitter",
+      "tokens": [
+        "Twitterbot"
+      ]
+    },
+    {
+      "category": "social",
+      "family": "linkedin",
+      "tokens": [
+        "LinkedInBot"
+      ]
+    },
+    {
+      "category": "social",
+      "family": "discord",
+      "tokens": [
+        "Discordbot"
+      ]
+    },
+    {
+      "category": "social",
+      "family": "telegram",
+      "tokens": [
+        "TelegramBot"
+      ]
+    },
+    {
+      "category": "social",
+      "family": "whatsapp",
+      "tokens": [
+        "WhatsApp"
+      ]
+    },
+    {
+      "category": "social",
+      "family": "slack",
+      "tokens": [
+        "Slackbot",
+        "Slack-ImgProxy"
+      ]
+    },
+    {
+      "category": "monitoring",
+      "family": "lighthouse",
+      "tokens": [
+        "Lighthouse",
+        "Chrome-Lighthouse"
+      ]
+    },
+    {
+      "category": "monitoring",
+      "family": "pagespeed",
+      "tokens": [
+        "PageSpeed",
+        "Google Page Speed Insights"
+      ]
+    },
+    {
+      "category": "monitoring",
+      "family": "uptimerobot",
+      "tokens": [
+        "UptimeRobot"
+      ]
+    },
+    {
+      "category": "monitoring",
+      "family": "pingdom",
+      "tokens": [
+        "Pingdom"
+      ]
+    },
+    {
+      "category": "monitoring",
+      "family": "headless",
+      "tokens": [
+        "HeadlessChrome"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "ahrefs",
+      "tokens": [
+        "AhrefsBot",
+        "AhrefsSiteAudit"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "semrush",
+      "tokens": [
+        "SemrushBot"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "majestic",
+      "tokens": [
+        "MJ12bot"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "dotbot",
+      "tokens": [
+        "DotBot"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "commoncrawl",
+      "tokens": [
+        "CCBot"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "amazon",
+      "tokens": [
+        "Amazonbot"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "bytedance",
+      "tokens": [
+        "Bytespider"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "http-library",
+      "tokens": [
+        "curl",
+        "Wget",
+        "python-requests",
+        "Go-http-client",
+        "Ruby",
+        "Java"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "openai",
+      "tokens": [
+        "OAI-AdsBot"
+      ]
+    },
+    {
+      "category": "other",
+      "family": "google",
+      "tokens": [
+        "GoogleOther"
+      ]
+    }
+  ]
+}

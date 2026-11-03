@@ -17,4 +17,4 @@ where = ["."]
 include = ["barelytics*"]
 
 [tool.setuptools.package-data]
-barelytics = ["admin-ui/*"]
+barelytics = ["admin-ui/*", "track.js"]

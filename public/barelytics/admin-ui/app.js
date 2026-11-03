@@ -1,7 +1,7 @@
 const config = window.BARELYTICS_ADMIN_CONFIG || {};
 const apiBase = new URL(config.apiBase || 'api/', window.location.href);
 const $ = (id) => document.getElementById(id);
-const state = { csrf: '', retention: 180, pagesPage: 1, dailyPage: 1, perPage: 50 };
+const state = { csrf: '', retention: 180, pagesPage: 1, dailyPage: 1, automationPage: 1, pageRequest: 0, perPage: 50 };
 
 function text(value) { return document.createTextNode(String(value ?? '')); }
 function table(container, headers, rows) {
@@ -35,6 +35,30 @@ async function loadDashboard() {
   table($('timeline'), ['Period', 'Views'], (d.timeline || []).map(r => [r.period, r.views]));
   table($('top-pages'), ['Page', 'Views'], (d.top_pages || []).map(r => [link(r.path), r.views]));
 }
+async function loadAutomation(page = state.automationPage) {
+  const d = await request('automation', { ...query(), page, per_page: state.perPage });
+  $('automation-metrics').replaceChildren(metric('Classified automation', Number(d.total).toLocaleString(), 'observed requests, including uncertain automation'));
+  table($('automation-timeline'), ['Period (UTC)', 'Requests'], (d.timeline || []).map(r => [r.period, r.requests]));
+  table($('automation-categories'), ['Category', 'Requests'], (d.categories || []).map(r => [r.category, r.requests]));
+  table($('automation-families'), ['Category', 'Declared family / heuristic', 'Requests'], (d.families || []).map(r => [r.category, r.family, r.requests]));
+  table($('automation-pages'), ['Page', 'Requests'], (d.rows || []).map(r => [link(r.path), r.requests]));
+  state.automationPage = d.page;
+  $('automation-page').textContent = `Page ${d.page} of ${Math.max(1, d.pages || 1)} (${d.total_rows} paths)`;
+}
+async function dimensionBreakdown(container, dimension, path, page = 1) {
+  const d = await request('dimensions', { ...query(), dimension, path, page, per_page: state.perPage });
+  if (!d.enabled) { container.textContent = `${d.label || dimension} collection is disabled in the current privacy configuration. Historical aggregates may be retained.`; return; }
+  if (!d.rows?.length) { container.textContent = 'No observed data for this selection. Values may be missing or withheld; they are not inferred.'; return; }
+  table(container, [d.label || 'Value', 'Views'], d.rows.map(r => [r.value === 'XX' || r.value === 'Unknown' ? 'Unknown / unavailable' : r.value, r.views]));
+  if (d.pages > 1) {
+    const nav = document.createElement('div'); nav.className = 'pagination';
+    for (const [label, next] of [['Previous', page - 1], ['Next', page + 1]]) {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.disabled = next < 1 || next > d.pages;
+      button.addEventListener('click', () => dimensionBreakdown(container, dimension, path, next).catch(e => notice(e.message, true))); nav.append(button);
+    }
+    nav.append(text(`Page ${page} of ${d.pages} (${d.total_rows} values)`)); container.append(nav);
+  }
+}
 async function loadPages(kind, page) {
   const d = await request(kind, { ...query(), page, per_page: state.perPage });
   const rows = (d.rows || []).map(r => kind === 'pages' ? [link(r.path), r.views] : [r.day, link(r.path), r.views]);
@@ -43,16 +67,23 @@ async function loadPages(kind, page) {
   $(`${pages}-page`).textContent = `Page ${d.page || page} of ${Math.max(1, d.pages || 1)} (${d.total_rows || 0} rows)`;
 }
 async function loadPage(path) {
+  const generation = ++state.pageRequest;
   const d = await request('page', { ...query(), path });
+  if (generation !== state.pageRequest) return;
   $('page-path').value = d.path;
+  const dimensions = $('page-dimensions'); dimensions.replaceChildren();
+  await Promise.all(['referrer', 'country', 'browser', 'device', 'os'].map(async dimension => {
+    const section = document.createElement('section'), title = document.createElement('h3'), result = document.createElement('div');
+    title.textContent = `${dimension[0].toUpperCase() + dimension.slice(1)} for this page`; section.append(title, result); dimensions.append(section);
+    await dimensionBreakdown(result, dimension, d.path);
+  }));
+  if (generation !== state.pageRequest) return;
   const rows = (d.timeline || []).map(r => [r.period, r.views]);
   table($('page-result'), ['Period', 'Views'], rows);
   $('page-result').prepend(Object.assign(document.createElement('p'), { textContent: `Total: ${Number(d.total).toLocaleString()} views` }));
 }
 async function loadDimensions() {
-  const dimension = $('dimension').value, d = await request('dimensions', { ...query(), dimension, page: 1, per_page: state.perPage });
-  if (!d.enabled) { $('dimension-result').textContent = `${d.label || dimension} collection is disabled in the current privacy configuration.`; return; }
-  table($('dimension-result'), [d.label || 'Value', 'Views'], (d.rows || []).map(r => [r.value, r.views]));
+  await dimensionBreakdown($('dimension-result'), $('dimension').value);
 }
 async function loadPrivacy() {
   const d = await request('privacy'); state.retention = d.retention_days;
@@ -66,7 +97,7 @@ async function loadPrivacy() {
 async function loadSystem() { const d = await request('system'); $('system-result').textContent = JSON.stringify(d, null, 2); let button = $('system-migrate'); if (d.migration_required) { if (!button) { button = document.createElement('button'); button.id = 'system-migrate'; button.textContent = 'Apply database migrations'; button.addEventListener('click', async () => { try { await request('migrate', {}, 'POST', {}); notice('Database migrations applied.'); await refresh(); } catch (e) { notice(e.message, true); } }); $('system-result').after(button); } } else button?.remove(); }
 async function loadAudit() { $('audit-result').textContent = JSON.stringify(await request('audit'), null, 2); }
 async function loadIntegration() { const d = await request('integration'); const p = document.createElement('p'); p.textContent = d.instructions || 'See the runtime integration guide for setup instructions.'; $('integration-result').replaceChildren(p); if (d.javascript_snippet) { const code = document.createElement('pre'); code.textContent = d.javascript_snippet; $('integration-result').append(code); } }
-async function refresh() { try { notice(''); await Promise.all([loadDashboard(), loadPages('pages', state.pagesPage), loadPages('daily', state.dailyPage), loadPrivacy(), loadSystem(), loadAudit(), loadIntegration()]); } catch (e) { notice(e.message, true); } }
+async function refresh() { try { notice(''); await loadPrivacy(); await Promise.all([loadDimensions(), loadAutomation(), ...($('page-path').value ? [loadPage($('page-path').value)] : []), loadDashboard(), loadPages('pages', state.pagesPage), loadPages('daily', state.dailyPage), loadSystem(), loadAudit(), loadIntegration()]); } catch (e) { notice(e.message, true); } }
 async function initialize() {
   try {
     const session = await request('session');
@@ -87,6 +118,6 @@ $('privacy-form').addEventListener('submit', async e => { e.preventDefault(); co
 $('strict').addEventListener('click', async () => { if (!confirm('Disable all optional dimensions? Historical aggregates will be retained.')) return; try { await request('strict', {}, 'POST', {}); notice('Strict Mode is active.'); await refresh(); } catch (x) { notice(x.message, true); } });
 $('cleanup').addEventListener('click', async () => { try { const d = await request('cleanup', {}, 'POST', {}); $('maintenance-result').textContent = d.complete ? 'Expired data removed.' : 'A bounded cleanup batch ran; repeat to remove remaining expired data.'; } catch (x) { notice(x.message, true); } });
 $('delete-all').addEventListener('click', async () => { if (!confirm('Permanently delete all aggregate statistics? This cannot be undone.')) return; try { await request('delete-all', {}, 'POST', { confirmation: 'DELETE' }); notice('All aggregate statistics deleted.'); await refresh(); } catch (x) { notice(x.message, true); } });
-for (const button of document.querySelectorAll('[data-page]')) button.addEventListener('click', async () => { const name = button.dataset.page, key = `${name}Page`, next = Math.max(1, state[key] + Number(button.dataset.step)); try { await loadPages(name, next); } catch (x) { notice(x.message, true); } });
+for (const button of document.querySelectorAll('[data-page]')) button.addEventListener('click', async () => { const name = button.dataset.page, key = `${name}Page`, next = Math.max(1, state[key] + Number(button.dataset.step)); try { if (name === 'automation') await loadAutomation(next); else await loadPages(name, next); } catch (x) { notice(x.message, true); } });
 document.addEventListener('click', e => { const a = e.target.closest('a[data-path]'); if (a) { e.preventDefault(); $('page-path').value = a.dataset.path; loadPage(a.dataset.path).catch(x => notice(x.message, true)); } });
 initialize();

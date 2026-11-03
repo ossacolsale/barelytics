@@ -10,6 +10,14 @@ store.dashboard(period_days: 30)
 store.audit
 ```
 
-For Rack, wrap the app with `Barelytics::Rack.new(app, store: store)` and exclude API, health, and background routes at the application layer. Mount `Barelytics::RackAdmin` at an authenticated admin path with host `authorize`, `verify_csrf`, and `csrf_token` callbacks. It serves the shared zero-build UI and API for overview, pages, day × page, page timelines, dimensions, privacy settings, cleanup, delete-all, system status, and audit. Rails can use its existing authentication and CSRF helpers in those callbacks; Barelytics does not create a user store. Keep SQLite on persistent, non-public storage. Strict Mode only stores daily normalized path totals; dimensions require explicit acknowledged opt-in. See [framework recipes](../../docs/integrations/README.md) and the shared contract in `../../spec/`.
+For an explicit browser endpoint, mount `Barelytics::RackTrack.new(app, store: store)` at `/barelytics/track`. Choose this or server-page middleware once per page. For server-page Rack, wrap the app with `Barelytics::Rack.new(app, store: store)` and exclude API, health, and background routes at the application layer. Mount `Barelytics::RackAdmin` at an authenticated admin path with host `authorize`, `verify_csrf`, and `csrf_token` callbacks. It serves the shared zero-build UI and API for overview, pages, day × page, page timelines, dimensions, privacy settings, cleanup, delete-all, system status, and audit. Rails can use its existing authentication and CSRF helpers in those callbacks; Barelytics does not create a user store. Keep SQLite on persistent, non-public storage. Strict Mode stores daily normalized path totals and separate finite automation counters; dimensions require explicit acknowledged opt-in. See [framework recipes](../../docs/integrations/README.md) and the shared contract in `../../spec/`.
 
 Run tests with `ruby -Ilib test/test_barelytics.rb` after installing the gem dependencies with `bundle install`.
+
+Automation reports and page-filtered dimensions are available in the administration
+UI. Automation identities are declared, never verified; JavaScript sees only
+clients executing the tracker. Browser attribution requires explicit protocol v2
+opt-in; default requests remain path-only. See [configuration and browser
+integration](../../docs/configuration.md) and the [collector contract](../../spec/protocol.md).
+Daily Reach is unavailable; no analytics cookie or distinct-browser count is
+introduced. Reopening a store with default options preserves saved settings.

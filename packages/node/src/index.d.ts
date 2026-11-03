@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 export type Dimension = 'country_collection' | 'referrer_collection' | 'browser_collection' | 'device_collection' | 'os_collection';
 export type Options = { dataDirectory?: string; databasePath?: string; retentionDays?: 30 | 90 | 180 | 365; pathExclusions?: string[]; botPatterns?: string[] };
 export type RequestContext = { path: string; userAgent?: string; country?: string; referrer?: string };
-export type AuditReport = { application: string; contract_version: number; schema_version: number; profile: 'strict' | 'extended'; fingerprint: string; configuration: Record<string, unknown>; checks: Record<string, boolean>; result: 'PASS' | 'FAIL' };
+export type AuditReport = { application: string; contract_version: number; schema_version: number; profile: 'strict' | 'extended'; fingerprint: string; historical_dimensions: string[]; configuration_history: Record<string, unknown>[]; configuration: Record<string, unknown>; checks: Record<string, boolean>; result: 'PASS' | 'FAIL' };
 
 export class Barelytics {
   constructor(options?: Options);
@@ -26,3 +26,8 @@ export function createTrackHandler(analytics: Barelytics): (request: IncomingMes
 export function createAdminHandler(analytics: Barelytics, options: { authorize(request: IncomingMessage): boolean | Promise<boolean>; verifyCsrf(request: IncomingMessage, token: string): boolean | Promise<boolean>; csrfToken(request: IncomingMessage): string | Promise<string> }): (request: IncomingMessage, response: ServerResponse) => Promise<void>;
 export function normalizePath(path: string): string | null;
 export function isBot(userAgent: string, extraPatterns?: string[]): boolean;
+
+export type AutomationClassification = { category: 'search' | 'ai' | 'social' | 'monitoring' | 'other' | 'uncertain' | 'unknown' | 'browser'; family: string; identity: 'declared' | 'heuristic' | 'unknown' | 'presumed'; verified: false; automation: boolean };
+export function classifyUserAgent(userAgent?: string, extraPatterns?: string[]): AutomationClassification;
+export function collectorPayload(body: unknown): { path: string; version: 1 | 2; referrer_host: string | null } | null;
+export function validReferrerHostname(value: unknown): boolean;

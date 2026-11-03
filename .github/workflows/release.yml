@@ -73,7 +73,10 @@ jobs:
       - name: Syntax checks
         run: find public/barelytics integrations/wordpress scripts -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Regression checks
-        run: php tests/run.php
+        run: |
+          php tests/run.php
+          php tests/wordpress.php
+          php tests/sqlite-concurrency.php
       - name: HTTP integration checks
         run: bash tests/integration.sh
       - name: Build installable archives

@@ -20,23 +20,24 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     exit;
 }
 $length = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
-if ($length > 2048) { http_response_code(413); exit; }
+if ($length > 8192) { http_response_code(413); exit; }
 $type = strtolower(trim(explode(';', (string) ($_SERVER['CONTENT_TYPE'] ?? ''))[0]));
-if (!in_array($type, ['application/json', 'text/plain'], true)) { http_response_code(415); exit; }
-$body = file_get_contents('php://input', false, null, 0, 2049);
-if (!is_string($body) || strlen($body) > 2048) { http_response_code(413); exit; }
-$payload = $type === 'application/json' ? json_decode($body, true) : ['path' => $body];
-if (!is_array($payload) || !isset($payload['path']) || !is_string($payload['path'])) { http_response_code(400); exit; }
-$path = normalizePath($payload['path']);
-if ($path === null) { http_response_code(400); exit; }
+if ($type !== 'application/json') { http_response_code(415); exit; }
+$body = file_get_contents('php://input', false, null, 0, 8193);
+if (!is_string($body) || strlen($body) > 8192) { http_response_code(413); exit; }
+$payload = \Barelytics\collectorPayload($body);
+if ($payload === null) { http_response_code(400); exit; }
+
 try {
     $db = connectDatabase();
-    countRequest($db, $path);
+    if ($payload['version'] === 2 && !\Barelytics\effectivePrivacyConfig($db)['referrer_collection']) { http_response_code(400); exit; }
+    $referrer = $payload['referrer_host'] !== null ? 'https://' . $payload['referrer_host'] : '';
+    countRequest($db, $payload['path'], $referrer, true);
 } catch (Throwable $ignored) {
     // Tracking must fail silently to the visitor and never expose internal errors.
 }
 http_response_code(204);
-if ($db instanceof PDO && function_exists('fastcgi_finish_request')) {
-    fastcgi_finish_request();
+if ($db instanceof PDO) {
+    if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
     runScheduledCleanupIfDue($db);
 }

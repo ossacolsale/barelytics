@@ -24,7 +24,7 @@ The PHP project disclosed two critical remote-code-execution vulnerabilities in 
 
 PHP 8.2 remains supported by this project through 2026-12-31, when upstream security support ends. Move PHP 8.2 deployments to a supported branch before that date. Barelytics plans to raise its minimum to PHP 8.3 in the first release on or after 2027-01-01, updating the runtime gate and CI/release matrices together.
 
-Retention cleanup runs at most once every 24 hours. PHP-FPM deployments with `fastcgi_finish_request()` do a bounded batch after a tracking response. Other handlers run cleanup on an authenticated admin request. Each batch deletes at most 1,000 expired rows per aggregate table and can resume on a later day. Cron may be used as an optional optimization, never as a requirement.
+Active collection triggers a due retention batch at least once per 24 hours, including PHP without FastCGI and WordPress. Each invocation deletes at most 1,000 expired rows per aggregate table, including automation. A full batch marks cleanup pending so subsequent requests resume immediately. PHP-FPM can finish its response before maintenance; other handlers perform bounded work during the request or shutdown. Administrator maintenance can also run a batch. Idle sites have no execution trigger: schedule maintenance if wall-clock deletion is required.
 
 ## HTTPS and server rules
 

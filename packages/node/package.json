@@ -6,12 +6,13 @@
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "exports": {
-    ".": { "types": "./src/index.d.ts", "import": "./src/index.js" }
+    ".": { "types": "./src/index.d.ts", "import": "./src/index.js" },
+    "./track.js": "./track.js"
   },
   "engines": { "node": ">=22.13.0" },
   "scripts": {
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
   },
   "license": "MIT",
-  "files": ["src", "admin-ui"]
+  "files": ["src", "admin-ui", "track.js"]
 }

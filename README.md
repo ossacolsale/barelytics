@@ -8,7 +8,7 @@ Barelytics provides native analytics and administration for PHP, Node.js, Python
 
 ## What it collects
 
-By default, Barelytics stores aggregate page views and normalized paths. It does **not** store IP addresses, full User-Agent strings, query strings, full referrer URLs, cookies, browser storage IDs, account IDs, or cross-site identifiers. Optional country, referrer-host, browser, device, and operating-system aggregates are off until an administrator explicitly enables them. Bot filtering is heuristic. Barelytics makes no legal-compliance guarantee; site owners assess their own obligations.
+By default, Barelytics stores daily page views and separate automation counts by normalized path and finite category/family. Declared bot identities are unverified; JavaScript collection sees only clients that execute the tracker. It does **not** store IP addresses, full User-Agent strings, query strings, full referrer URLs, cookies, browser storage IDs, account IDs, or cross-site identifiers. Optional country, referrer-host, browser, device, and operating-system aggregates are off until an administrator explicitly enables them. Bot filtering is heuristic. Barelytics makes no legal-compliance guarantee; site owners assess their own obligations.
 
 ## Runtime support
 

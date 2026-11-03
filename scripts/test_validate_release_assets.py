@@ -94,6 +94,14 @@ class ReleaseAssetValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"possible secret"):
             validate_archive(path)
 
+    def test_bootstrap_and_recovery_tokens_are_rejected(self) -> None:
+        path = self.directory / "barelytics-php-v1.0.0.zip"
+        for name in ("data/setup-token.php", "var/setup.token", "var/reset.token", "var/install.lock"):
+            with self.subTest(name=name):
+                make_zip(path, {**UI, name: b"synthetic fixture"})
+                with self.assertRaisesRegex(ValueError, r"sensitive/local data file"):
+                    validate_archive(path)
+
     def test_native_package_cannot_contain_php(self) -> None:
         path = self.directory / "barelytics-node-v1.0.0.tgz"
         path.write_bytes(make_tar({**UI, "src/accidental.php": b"<?php"}))

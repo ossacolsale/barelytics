@@ -56,7 +56,11 @@ $barelyticsAdminApi = __DIR__ . '/barelytics-core/src/AdminApi.php';
 if (is_file($barelyticsAdminApi)) { require_once $barelyticsAdminApi; }
 
 register_activation_hook(__FILE__, static function (): void {
-    if (barelytics_wp_storage_ready()) { @chmod(BARELYTICS_WP_DATA_DIRECTORY, 0700); }
+    if (!barelytics_wp_storage_ready()) return;
+    @chmod(BARELYTICS_WP_DATA_DIRECTORY, 0700);
+    try {
+        if (function_exists('Barelytics\\openDatabase')) \Barelytics\openDatabase();
+    } catch (Throwable) { /* Administrator UI reports unavailable storage. */ }
 });
 
 add_action('admin_notices', static function (): void {
@@ -72,7 +76,11 @@ add_action('template_redirect', static function (): void {
         try {
             $path = parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
             $path = is_string($path) ? \Barelytics\normalizePath($path) : null;
-            if ($path !== null) { \Barelytics\countRequest(\Barelytics\connectDatabase(), $path); }
+            if ($path !== null) {
+                $db = \Barelytics\connectDatabase();
+                \Barelytics\countRequest($db, $path);
+                \Barelytics\runScheduledCleanupIfDue($db);
+            }
         } catch (Throwable) { /* Analytics must never break a WordPress response. */ }
     }
 }, 20);

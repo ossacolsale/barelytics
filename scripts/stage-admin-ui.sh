@@ -12,4 +12,6 @@ do
   rm -rf -- "$destination"
   mkdir -p -- "$destination"
   cp "$ui_source"/* "$destination"/
+  # The host serves this shared tracker at its chosen same-origin static path.
+  cp "$repo_root/public/barelytics/track.js" "$destination/../track.js"
 done

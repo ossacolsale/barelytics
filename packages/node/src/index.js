@@ -3,9 +3,11 @@ import { mkdirSync, chmodSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { classifyUserAgent } from './automation.js';
+export { classifyUserAgent } from './automation.js';
 
-export const CONTRACT_VERSION = 1;
-export const SCHEMA_VERSION = 2;
+export const CONTRACT_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const DIMENSIONS = Object.freeze(['country_collection', 'referrer_collection', 'browser_collection', 'device_collection', 'os_collection']);
 export const DEFAULT_EXCLUSIONS = Object.freeze(['/admin/*', '/admin.php', '/account/*', '/checkout/*', '/customer/*', '/patient/*', '/profile/*', '/private/*']);
 export const DEFAULT_BOTS = Object.freeze(['bot', 'crawler', 'spider', 'slurp', 'bingpreview', 'headless', 'lighthouse', 'pagespeed', 'semrush', 'ahrefsbot', 'mj12bot', 'dotbot', 'facebookexternalhit', 'twitterbot', 'linkedinbot', 'discordbot', 'telegrambot', 'whatsapp', 'petalbot', 'yandex', 'baiduspider', 'bytespider', 'duckduckbot', 'applebot', 'googlebot', 'bingbot']);
@@ -19,18 +21,18 @@ export function normalizePath(value) {
   if (Buffer.byteLength(path, 'utf8') > 512 || /%(?![0-9a-f]{2})/iu.test(path)) return null;
   let decoded;
   try { decoded = decodeURIComponent(path); } catch { return null; }
-  if (/[\u0000-\u001f\u007f@?#]/u.test(decoded)) return null;
+  if (/[\u0000-\u001f\u007f@?#\\%]/u.test(decoded) || decoded.split('/').length !== path.split('/').length || /(?:^|\/)\.{1,2}(?:\/|$)/u.test(decoded)) return null;
   const ids = /(?<=\/)(?:[0-9]{6,}|[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{16,}|[A-Za-z0-9_-]{32,})(?=\/|$)/giu;
   if (decoded !== path && ids.test(decoded)) return null;
   return path.replace(ids, ':id');
 }
 
 export function isBot(userAgent, extraPatterns = []) {
-  const value = typeof userAgent === 'string' ? userAgent.toLocaleLowerCase('en-US') : '';
-  return [...DEFAULT_BOTS, ...extraPatterns.filter(item => typeof item === 'string' && item.length > 0)].some(pattern => value.includes(pattern.toLocaleLowerCase('en-US')));
+  return classifyUserAgent(userAgent, extraPatterns).automation;
 }
 
 function blocked(path, patterns) {
+  path = decodeURIComponent(path);
   return patterns.some(pattern => pattern.endsWith('/*') ? path === pattern.slice(0, -2) || path.startsWith(pattern.slice(0, -1)) : path === pattern);
 }
 
@@ -52,27 +54,30 @@ export class Barelytics {
     this.#db.exec('PRAGMA busy_timeout=1000');
     try { this.#db.exec('PRAGMA journal_mode=WAL'); } catch { /* WAL is optional. */ }
     try { chmodSync(this.databasePath, 0o600); } catch { /* Some filesystems do not expose POSIX modes. */ }
-    const exclusions = [...new Set((options.pathExclusions ?? DEFAULT_EXCLUSIONS).filter(x => typeof x === 'string' && x.startsWith('/') && x.length <= 200))].sort();
+    this.#exclusions = [...new Set((options.pathExclusions ?? DEFAULT_EXCLUSIONS).filter(x => typeof x === 'string' && x.startsWith('/') && x.length <= 200))].sort();
     this.#bots = [...new Set((options.botPatterns ?? []).filter(x => typeof x === 'string' && x.length <= 200))];
-    this.#migrate(options);
+    try { this.#migrate(options); } catch (error) { this.#db.close(); throw error; }
+    this.#recordHistory();
     if (options.retentionDays !== undefined) this.setRetention(options.retentionDays);
   }
   #migrate(options) {
-    this.#db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS pageviews_daily(day TEXT NOT NULL,path TEXT NOT NULL,country TEXT NOT NULL DEFAULT 'XX',views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,country));
-      CREATE TABLE IF NOT EXISTS referrers_daily(day TEXT NOT NULL,path TEXT NOT NULL,referrer_host TEXT NOT NULL,views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,referrer_host));
-      CREATE TABLE IF NOT EXISTS dimensions_daily(day TEXT NOT NULL,path TEXT NOT NULL,dimension TEXT NOT NULL,value TEXT NOT NULL,views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,dimension,value));
-      CREATE TABLE IF NOT EXISTS privacy_configuration_history(timestamp TEXT NOT NULL,profile TEXT NOT NULL,effective_configuration_json TEXT NOT NULL,configuration_hash TEXT NOT NULL,application_version TEXT NOT NULL,schema_version INTEGER NOT NULL);`);
     this.#db.exec('BEGIN IMMEDIATE');
     try {
+      this.#db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS automation_daily(day TEXT NOT NULL,path TEXT NOT NULL,category TEXT NOT NULL,family TEXT NOT NULL,requests INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,category,family));
+        CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS pageviews_daily(day TEXT NOT NULL,path TEXT NOT NULL,country TEXT NOT NULL DEFAULT 'XX',views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,country));
+        CREATE TABLE IF NOT EXISTS referrers_daily(day TEXT NOT NULL,path TEXT NOT NULL,referrer_host TEXT NOT NULL,views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,referrer_host));
+        CREATE TABLE IF NOT EXISTS dimensions_daily(day TEXT NOT NULL,path TEXT NOT NULL,dimension TEXT NOT NULL,value TEXT NOT NULL,views INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,dimension,value));
+        CREATE TABLE IF NOT EXISTS privacy_configuration_history(timestamp TEXT NOT NULL,profile TEXT NOT NULL,effective_configuration_json TEXT NOT NULL,configuration_hash TEXT NOT NULL,application_version TEXT NOT NULL,schema_version INTEGER NOT NULL);`);
+      if (this.#db.prepare('SELECT COALESCE(MAX(version),0) AS version FROM schema_migrations').get().version > SCHEMA_VERSION) throw new Error('The database requires a newer Barelytics runtime.');
       const migrate = this.#db.prepare('INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)');
-      for (const version of [1, SCHEMA_VERSION]) migrate.run(version, new Date().toISOString());
+      for (const version of [1, 2, SCHEMA_VERSION]) migrate.run(version, new Date().toISOString());
       setSetting(this.#db, 'retention_days', setting(this.#db, 'retention_days', '180'));
       for (const [key, value] of Object.entries(defaults)) if (setting(this.#db, key, '') !== '0' && setting(this.#db, key, '') !== '1') setSetting(this.#db, key, '0');
       setSetting(this.#db, 'path_exclusions', setting(this.#db, 'path_exclusions', DEFAULT_EXCLUSIONS.join('\n')));
       setSetting(this.#db, 'bot_patterns', setting(this.#db, 'bot_patterns', ''));
-      if (options.pathExclusions) setSetting(this.#db, 'path_exclusions', exclusions.join('\n'));
+      if (options.pathExclusions) setSetting(this.#db, 'path_exclusions', this.#exclusions.join('\n'));
       if (options.botPatterns) setSetting(this.#db, 'bot_patterns', this.#bots.join('\n'));
       this.#db.exec('COMMIT');
     } catch (error) { try { this.#db.exec('ROLLBACK'); } catch {} throw error; }
@@ -85,15 +90,24 @@ export class Barelytics {
     config.retention_days = validRetention.has(retentionRaw) ? retentionRaw : 180;
     config.path_exclusions = setting(this.#db, 'path_exclusions', DEFAULT_EXCLUSIONS.join('\n')).split('\n').filter(x => x.startsWith('/') && x.length <= 200).sort();
     config.bot_patterns = setting(this.#db, 'bot_patterns', '').split('\n').filter(x => x.length > 0 && x.length <= 200);
+    config.automation_collection = true; config.daily_reach_available = false; config.reporting_day = 'UTC';
     config.profile = DIMENSIONS.some(key => config[key]) ? 'extended' : 'strict';
     return config;
   }
   trackPageView(context) {
+    const day = daily();
     try {
       const path = normalizePath(context.path);
       const config = this.#config();
-      if (!path || blocked(path, config.path_exclusions) || isBot(context.userAgent ?? '', config.bot_patterns)) return false;
-      const day = daily();
+      if (!path || blocked(path, config.path_exclusions)) return false;
+      const classification = classifyUserAgent(context.userAgent, config.bot_patterns);
+      if (classification.automation) {
+        this.#db.exec('BEGIN IMMEDIATE');
+        this.#db.prepare('INSERT INTO automation_daily(day,path,category,family,requests) VALUES (?,?,?,?,1) ON CONFLICT(day,path,category,family) DO UPDATE SET requests=requests+1').run(day, path, classification.category, classification.family);
+        this.#db.exec('COMMIT');
+        this.#cleanupIfDue();
+        return false;
+      }
       const country = config.country_collection && /^[A-Za-z]{2}$/.test(context.country ?? '') ? context.country.toUpperCase() : 'XX';
       this.#db.exec('BEGIN IMMEDIATE');
       this.#db.prepare('INSERT INTO pageviews_daily(day,path,country,views) VALUES (?,?,?,1) ON CONFLICT(day,path,country) DO UPDATE SET views=views+1').run(day, path, country);
@@ -106,6 +120,7 @@ export class Barelytics {
         [config.browser_collection, 'browser', browser(ua)], [config.device_collection, 'device', device(ua)], [config.os_collection, 'os', operatingSystem(ua)]
       ]) if (enabled) this.#db.prepare('INSERT INTO dimensions_daily(day,path,dimension,value,views) VALUES (?,?,?,?,1) ON CONFLICT(day,path,dimension,value) DO UPDATE SET views=views+1').run(day, path, dimension, value);
       this.#db.exec('COMMIT');
+      this.#cleanupIfDue();
       return true;
     } catch {
       try { this.#db.exec('ROLLBACK'); } catch {}
@@ -126,13 +141,15 @@ export class Barelytics {
   returnToStrictMode() { this.updatePrivacy({}, ''); }
   setRetention(days) {
     const value = validRetention.has(Number(days)) ? Number(days) : 180;
-    setSetting(this.#db, 'retention_days', value);
-    this.#recordHistory();
+    this.#db.exec('BEGIN IMMEDIATE');
+    try { setSetting(this.#db, 'retention_days', value); this.#recordHistory(); this.#db.exec('COMMIT'); }
+    catch (error) { try { this.#db.exec('ROLLBACK'); } catch {} throw error; }
   }
   #recordHistory() {
     const config = this.#config();
     const serialized = JSON.stringify(config);
     const fingerprint = sha256(JSON.stringify({ contract_version: CONTRACT_VERSION, schema_version: SCHEMA_VERSION, configuration: config }));
+    if (this.#db.prepare('SELECT configuration_hash FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 1').get()?.configuration_hash === fingerprint) return;
     this.#db.prepare('INSERT INTO privacy_configuration_history(timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version) VALUES (?,?,?,?,?,?)').run(new Date().toISOString(), config.profile, serialized, fingerprint, '1.1.0', SCHEMA_VERSION);
   }
   dashboard(periodDays = 30) {
@@ -182,6 +199,7 @@ export class Barelytics {
         timeline: this.#rows(`SELECT ${group} AS period,SUM(views) AS views FROM pageviews_daily WHERE path=? AND day BETWEEN ? AND ? GROUP BY period ORDER BY period`, pagePath, from, to), period, bucket };
     }
     if (resource === 'dimensions') {
+      if (Object.hasOwn(query, 'path') && !pagePath) throw new TypeError('Invalid page path.');
       const map = { country: ['country_collection', 'pageviews_daily', 'country'], referrer: ['referrer_collection', 'referrers_daily', 'referrer_host'], browser: ['browser_collection', 'dimensions_daily', 'value'], device: ['device_collection', 'dimensions_daily', 'value'], os: ['os_collection', 'dimensions_daily', 'value'] };
       const dimension = query.dimension ?? 'country';
       if (!map[dimension]) throw new TypeError('Unsupported dimension.');
@@ -189,10 +207,21 @@ export class Barelytics {
       if (!enabled) return { dimension, enabled: false, label: dimension, rows: [], total_rows: 0, page: 1, pages: 1 };
       const { page, perPage, offset } = pagination();
       const params = table === 'dimensions_daily' ? [dimension, from, to] : [from, to];
-      const where = table === 'dimensions_daily' ? 'dimension=? AND day BETWEEN ? AND ?' : 'day BETWEEN ? AND ?';
+      let where = table === 'dimensions_daily' ? 'dimension=? AND day BETWEEN ? AND ?' : 'day BETWEEN ? AND ?';
+      if (Object.hasOwn(query, 'path')) { where += ' AND path=?'; params.push(pagePath); }
       const totalRows = this.#db.prepare(`SELECT COUNT(*) AS n FROM (SELECT ${column} FROM ${table} WHERE ${where} GROUP BY ${column})`).get(...params).n;
       const rows = this.#rows(`SELECT ${column} AS value,SUM(views) AS views FROM ${table} WHERE ${where} GROUP BY ${column} ORDER BY views DESC,value LIMIT ? OFFSET ?`, ...params, perPage, offset);
       return { dimension, enabled: true, label: dimension, rows, total_rows: totalRows, page, per_page: perPage, pages: Math.ceil(totalRows / perPage) };
+    }
+    if (resource === 'automation') {
+      const { page, perPage, offset } = pagination();
+      const total = this.#db.prepare('SELECT COALESCE(SUM(requests),0) AS n FROM automation_daily WHERE day BETWEEN ? AND ?').get(from, to).n;
+      const totalRows = this.#db.prepare('SELECT COUNT(*) AS n FROM (SELECT path FROM automation_daily WHERE day BETWEEN ? AND ? GROUP BY path)').get(from, to).n;
+      return { total, verified: false, period, page, per_page: perPage, total_rows: totalRows, pages: Math.ceil(totalRows / perPage),
+        timeline: this.#rows(`SELECT ${group} AS period,SUM(requests) AS requests FROM automation_daily WHERE day BETWEEN ? AND ? GROUP BY period ORDER BY period`, from, to),
+        categories: this.#rows('SELECT category,SUM(requests) AS requests FROM automation_daily WHERE day BETWEEN ? AND ? GROUP BY category ORDER BY requests DESC,category', from, to),
+        families: this.#rows('SELECT category,family,SUM(requests) AS requests FROM automation_daily WHERE day BETWEEN ? AND ? GROUP BY category,family ORDER BY requests DESC,category,family', from, to),
+        rows: this.#rows('SELECT path,SUM(requests) AS requests FROM automation_daily WHERE day BETWEEN ? AND ? GROUP BY path ORDER BY requests DESC,path LIMIT ? OFFSET ?', from, to, perPage, offset) };
     }
     if (resource === 'privacy') return config;
     if (resource === 'system') return { application: 'Barelytics Node.js', runtime: process.version, schema_version: SCHEMA_VERSION, current_schema_version: SCHEMA_VERSION, migration_required: false, capabilities: { cleanup: true, delete_all: true, logout: false } };
@@ -224,8 +253,32 @@ export class Barelytics {
   }
   deleteAll() {
     this.#db.exec('BEGIN IMMEDIATE');
-    try { for (const table of ['pageviews_daily', 'referrers_daily', 'dimensions_daily']) this.#db.exec(`DELETE FROM ${table}`); this.#db.exec('COMMIT'); }
+    try { for (const table of ['pageviews_daily', 'referrers_daily', 'dimensions_daily', 'automation_daily']) this.#db.exec(`DELETE FROM ${table}`); this.#db.exec('COMMIT'); }
     catch (error) { try { this.#db.exec('ROLLBACK'); } catch {} throw error; }
+  }
+  #historicalDimensions(config) {
+    const rows = [];
+    if (!config.country_collection && this.#db.prepare("SELECT 1 FROM pageviews_daily WHERE country<>'XX' LIMIT 1").get()) rows.push('country');
+    if (!config.referrer_collection && this.#db.prepare('SELECT 1 FROM referrers_daily LIMIT 1').get()) rows.push('referrer');
+    for (const name of ['browser', 'device', 'os']) if (!config[`${name}_collection`] && this.#db.prepare('SELECT 1 FROM dimensions_daily WHERE dimension=? LIMIT 1').get(name)) rows.push(name);
+    return rows;
+  }
+  #schemaValid(tables) {
+    const expected = {
+      pageviews_daily: ['day', 'path', 'country', 'views'],
+      referrers_daily: ['day', 'path', 'referrer_host', 'views'],
+      dimensions_daily: ['day', 'path', 'dimension', 'value', 'views'],
+      automation_daily: ['day', 'path', 'category', 'family', 'requests'],
+      settings: ['key', 'value'],
+      schema_migrations: ['version', 'applied_at'],
+      privacy_configuration_history: ['timestamp', 'profile', 'effective_configuration_json', 'configuration_hash', 'application_version', 'schema_version'],
+    };
+    return Object.keys(expected).every(t => tables.includes(t)) && tables.every(table => {
+      if (table.startsWith('sqlite_')) return true;
+      if (!Object.hasOwn(expected, table)) return false;
+      const columns = this.#db.prepare(`PRAGMA table_info("${table.replaceAll('"', '""')}")`).all().map(c => c.name).sort();
+      return JSON.stringify(columns) === JSON.stringify([...expected[table]].sort());
+    });
   }
   audit() {
     const config = this.#config();
@@ -236,14 +289,23 @@ export class Barelytics {
       strict_or_explicit_extended: config.profile === 'strict' || config.profile === 'extended',
       optional_dimensions_effective: DIMENSIONS.every(x => typeof config[x] === 'boolean'),
       retention_configured: validRetention.has(config.retention_days),
-      aggregate_schema: ['pageviews_daily','schema_migrations','privacy_configuration_history'].every(x => tables.includes(x)),
+      aggregate_schema: this.#schemaValid(tables),
       no_identity_or_event_tables: !forbidden,
       no_ip_column: !this.#db.prepare('PRAGMA table_info(pageviews_daily)').all().some(x => /ip/i.test(x.name)),
       no_third_party_analytics: true,
       path_normalization_active: normalizePath('/users/123456') === '/users/:id',
       private_exclusions_active: blocked('/admin/example', config.path_exclusions)
     };
-    return { application: 'Barelytics Node.js', contract_version: CONTRACT_VERSION, schema_version: SCHEMA_VERSION, profile: config.profile, fingerprint, configuration: config, checks, result: Object.values(checks).every(Boolean) ? 'PASS' : 'FAIL' };
+    return { application: 'Barelytics Node.js', contract_version: CONTRACT_VERSION, schema_version: SCHEMA_VERSION, profile: config.profile, fingerprint, configuration: config, historical_dimensions: this.#historicalDimensions(config), configuration_history: this.#rows('SELECT timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 100'), checks, result: Object.values(checks).every(Boolean) ? 'PASS' : 'FAIL' };
+  }
+  #cleanupIfDue() {
+    try {
+      const raw = setting(this.#db, 'last_cleanup_at', '');
+      const last = Date.parse(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z');
+      const age = Date.now() - last;
+      if (Number.isFinite(last) && age >= 0 && age < 86400000 && setting(this.#db, 'cleanup_pending', '0') !== '1') return;
+      this.cleanup();
+    } catch { /* Maintenance cannot change collection success. */ }
   }
   cleanup(limit = 1000) {
     const bounded = Math.max(1, Math.min(1000, Number.isInteger(limit) ? limit : 1000));
@@ -251,12 +313,13 @@ export class Barelytics {
     this.#db.exec('BEGIN IMMEDIATE');
     try {
       let complete = true;
-      for (const table of ['pageviews_daily','referrers_daily','dimensions_daily']) {
+      for (const table of ['pageviews_daily','referrers_daily','dimensions_daily','automation_daily']) {
         const count = this.#db.prepare(`SELECT COUNT(*) AS n FROM (SELECT rowid FROM ${table} WHERE day<? ORDER BY day LIMIT ?)`).get(cutoff, bounded).n;
         this.#db.prepare(`DELETE FROM ${table} WHERE rowid IN (SELECT rowid FROM ${table} WHERE day<? ORDER BY day LIMIT ?)`).run(cutoff, bounded);
         if (count === bounded) complete = false;
       }
       setSetting(this.#db, 'last_cleanup_at', new Date().toISOString());
+      setSetting(this.#db, 'cleanup_pending', complete ? '0' : '1');
       this.#db.exec('COMMIT');
       return complete;
     } catch { try { this.#db.exec('ROLLBACK'); } catch {} return false; }
@@ -264,9 +327,27 @@ export class Barelytics {
   close() { this.#db.close(); }
 }
 
+export function validReferrerHostname(value) {
+  return typeof value === 'string' && !/[^a-z0-9.-]/.test(value) && !/^(?:[0-9]+|0x[0-9a-f]+)(?:\.(?:[0-9]+|0x[0-9a-f]+))*$/.test(value) && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value);
+}
+
+export function collectorPayload(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const keys = Object.keys(body).sort().join(',');
+  const extended = keys === 'path,referrer_host,version' && body.version === 2;
+  if (keys !== 'path' && !extended) return null;
+  const path = normalizePath(body.path);
+  if (!path || (extended && body.referrer_host !== null && !validReferrerHostname(body.referrer_host))) return null;
+  return { path, version: extended ? 2 : 1, referrer_host: body.referrer_host ?? null };
+}
+
 export function createTrackHandler(analytics) {
   return async (request, response) => {
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
     if (request.method !== 'POST') { response.writeHead(405, { Allow: 'POST' }).end(); return; }
+    if (Number(request.headers['content-length']) > 8192) { response.writeHead(413).end(); return; }
+    if ((request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase() !== 'application/json') { response.writeHead(415).end(); return; }
     const chunks = [];
     let size = 0;
     try {
@@ -275,11 +356,13 @@ export function createTrackHandler(analytics) {
         if (size > 8192) { response.writeHead(413).end(); return; }
         chunks.push(chunk);
       }
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || typeof body.path !== 'string') { response.writeHead(400).end(); return; }
-      const path = normalizePath(body.path);
-      if (!path) { response.writeHead(400).end(); return; }
-      analytics.trackPageView({ path, userAgent: request.headers['user-agent'] });
+      const body = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks)));
+      const payload = collectorPayload(body);
+      if (!payload) { response.writeHead(400).end(); return; }
+      try {
+        if (payload.version === 2 && !analytics.adminData('privacy').referrer_collection) { response.writeHead(400).end(); return; }
+        analytics.trackPageView({ path: payload.path, userAgent: request.headers['user-agent'], referrer: payload.referrer_host ? `https://${payload.referrer_host}` : '' });
+      } catch { /* Host failures are contained. */ }
       response.writeHead(204).end();
     } catch { response.writeHead(400).end(); }
   };
@@ -348,13 +431,14 @@ export function createAdminHandler(analytics, { authorize, verifyCsrf, csrfToken
 }
 
 function validHost(value) {
+  if (typeof value !== 'string' || value.length > 2048 || Buffer.byteLength(value, 'utf8') > 2048) return null;
   try {
     const url = new URL(value);
     const host = url.hostname.toLowerCase().replace(/\.$/, '');
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(':')) return null;
-    return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host) ? host : null;
+    return validReferrerHostname(host) ? host : null;
   } catch { return null; }
 }
-function browser(ua) { return /Firefox\//i.test(ua) ? 'Firefox' : /Edg\/|Edge\//i.test(ua) ? 'Edge' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : 'Other'; }
-function device(ua) { return /iPad|Tablet/i.test(ua) ? 'Tablet' : /Mobile|Android|iPhone/i.test(ua) ? 'Mobile' : 'Desktop'; }
-function operatingSystem(ua) { return /Windows/i.test(ua) ? 'Windows' : /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iOS/i.test(ua) ? 'iOS' : /Mac OS/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : 'Other'; }
+function browser(ua) { if (!ua.trim()) return 'Unknown'; return /Firefox\//i.test(ua) ? 'Firefox' : /Edg\/|Edge\//i.test(ua) ? 'Edge' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : 'Other'; }
+function device(ua) { if (!ua.trim()) return 'Unknown'; return /iPad|Tablet/i.test(ua) ? 'Tablet' : /Mobile|Android|iPhone/i.test(ua) ? 'Mobile' : 'Desktop'; }
+function operatingSystem(ua) { if (!ua.trim()) return 'Unknown'; return /Windows/i.test(ua) ? 'Windows' : /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iOS/i.test(ua) ? 'iOS' : /Mac OS/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : 'Other'; }

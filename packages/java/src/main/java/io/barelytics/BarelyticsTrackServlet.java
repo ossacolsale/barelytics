@@ -1,40 +1,56 @@
 package io.barelytics;
 
-import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
-import java.sql.SQLException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
 
-/** Explicitly map this servlet to POST /barelytics/track; it does not install itself globally. */
+/** Explicitly map this servlet to /barelytics/track. */
 public final class BarelyticsTrackServlet extends HttpServlet {
-    private static final Pattern BODY = Pattern.compile("\\s*\\{\\s*\"path\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*}\\s*", Pattern.DOTALL);
     private final BarelyticsStore store;
     public BarelyticsTrackServlet(BarelyticsStore store) { this.store = store; }
 
-    @Override protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        if (request.getContentLengthLong() > 8192) { response.setStatus(413); return; }
-        byte[] bytes = request.getInputStream().readNBytes(8193);
-        if (bytes.length > 8192) { response.setStatus(413); return; }
-        String json = new String(bytes, StandardCharsets.UTF_8); Matcher matcher = BODY.matcher(json);
-        if (!matcher.matches()) { response.setStatus(400); return; }
-        String path;
-        try { path = unescape(matcher.group(1)); } catch (IllegalArgumentException e) { response.setStatus(400); return; }
-        if (BarelyticsStore.normalizePath(path) == null) { response.setStatus(400); return; }
-        try { store.trackPageView(path, request.getHeader("User-Agent"), null, null); response.setStatus(204); }
-        catch (RuntimeException e) { response.setStatus(204); }
+    @Override protected void service(HttpServletRequest request, HttpServletResponse response) throws jakarta.servlet.ServletException, IOException {
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        if (!"POST".equals(request.getMethod())) { response.setHeader("Allow", "POST"); response.setStatus(405); return; }
+        super.service(request, response);
     }
 
-    @Override protected void doGet(HttpServletRequest request, HttpServletResponse response) { response.setHeader("Allow", "POST"); response.setStatus(405); }
-    private static String unescape(String value) {
-        StringBuilder out = new StringBuilder();
-        for (int i=0;i<value.length();i++) {
-            char c=value.charAt(i); if(c!='\\'){out.append(c);continue;} if(++i>=value.length())throw new IllegalArgumentException();
-            char e=value.charAt(i); switch(e){case '"','\\','/'->out.append(e);case 'b'->out.append('\b');case 'f'->out.append('\f');case 'n'->out.append('\n');case 'r'->out.append('\r');case 't'->out.append('\t');case 'u'->{if(i+4>=value.length())throw new IllegalArgumentException();try{out.append((char)Integer.parseInt(value.substring(i+1,i+5),16));}catch(NumberFormatException ex){throw new IllegalArgumentException();}i+=4;}default->throw new IllegalArgumentException();}
-        } return out.toString();
+    @Override protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (request.getContentLengthLong() > 8192) { response.setStatus(413); return; }
+        String type = request.getContentType();
+        if (type == null || !type.split(";", 2)[0].trim().equalsIgnoreCase("application/json")) { response.setStatus(415); return; }
+        byte[] bytes = request.getInputStream().readNBytes(8193);
+        if (bytes.length > 8192) { response.setStatus(413); return; }
+        Payload payload;
+        try { payload = collectorPayload(bytes); } catch (IllegalArgumentException e) { response.setStatus(400); return; }
+        try {
+            if (payload.version() == 2 && !store.configuration().referrerCollection()) { response.setStatus(400); return; }
+            store.trackPageView(payload.path(), request.getHeader("User-Agent"), null, payload.referrerHost() == null ? "" : "https://" + payload.referrerHost());
+        }
+        catch (java.sql.SQLException | RuntimeException ignored) { /* Analytics cannot break host responses. */ }
+        response.setStatus(204);
+    }
+
+    record Payload(String path, int version, String referrerHost) {}
+    static Payload collectorPayload(byte[] bytes) {
+        try {
+            String json = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+            if (!(BarelyticsJson.parse(json) instanceof Map<?, ?> body)) throw new IllegalArgumentException();
+            boolean extended = body.keySet().equals(java.util.Set.of("path", "version", "referrer_host")) && body.get("version") instanceof Number version && version.doubleValue() == 2;
+            if (!body.keySet().equals(java.util.Set.of("path")) && !extended) throw new IllegalArgumentException();
+            if (!(body.get("path") instanceof String path) || BarelyticsStore.normalizePath(path) == null) throw new IllegalArgumentException();
+            Object host = body.get("referrer_host");
+            if (extended && host != null && (!(host instanceof String value) || !validHostname(value))) throw new IllegalArgumentException();
+            return new Payload(path, extended ? 2 : 1, (String) host);
+        } catch (java.nio.charset.CharacterCodingException e) { throw new IllegalArgumentException(e); }
+    }
+    private static boolean validHostname(String value) {
+        return BarelyticsStore.validReferrerHostname(value);
     }
 }

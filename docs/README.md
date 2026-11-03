@@ -16,6 +16,8 @@ Use this index to open only the guide relevant to the current task. It covers pr
 - [Technical audit guide](privacy-audit.md)
 - [Security model](security.md)
 - [Configuration](configuration.md)
+- [Quality and privacy review](quality-review.md)
+- [Daily Reach decision](decisions/daily-reach.md)
 
 ## Integrate
 

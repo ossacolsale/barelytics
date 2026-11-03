@@ -36,6 +36,11 @@ packages/python/barelytics/admin-ui/
 packages/dotnet/Barelytics/admin-ui/
 packages/java/src/main/resources/admin-ui/
 packages/ruby/lib/barelytics/admin-ui/
+packages/node/track.js
+packages/python/barelytics/track.js
+packages/dotnet/Barelytics/track.js
+packages/java/src/main/resources/track.js
+packages/ruby/lib/barelytics/track.js
 *.py[cod]
 packages/node/*.tgz
 packages/ruby/*.gem

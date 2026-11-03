@@ -24,7 +24,10 @@ jobs:
       - name: Syntax checks
         run: find public/barelytics -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Regression checks
-        run: php tests/run.php
+        run: |
+          php tests/run.php
+          php tests/wordpress.php
+          php tests/sqlite-concurrency.php
       - name: HTTP integration checks
         run: bash tests/integration.sh
 
@@ -149,6 +152,8 @@ jobs:
         run: find integrations/wordpress scripts -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Build installable plugin ZIP
         run: php scripts/build-wordpress-plugin.php
+      - name: Test package data exclusion
+        run: python3 -m unittest discover -s scripts -p 'test_wordpress_package.py' -v
       - name: Validate ZIP contents
         run: unzip -l build/barelytics-wordpress.zip | grep -E 'barelytics/(README.md|storage.php|barelytics-core/(admin.php|src/Barelytics.php))'
       - uses: actions/upload-artifact@v7

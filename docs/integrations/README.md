@@ -80,7 +80,7 @@ Deploy the PHP core beside the Drupal web root and point it at private persisten
 
 ## WordPress
 
-Build and upload the ZIP described in [`integrations/wordpress/README.md`](../../integrations/wordpress/README.md). The plugin stores the database under `wp-content/barelytics-private`, only counts successful document GETs, and provides settings, period-filtered page totals, and a technical Privacy Audit to users with `manage_options`. Do not add another tracker to plugin-counted pages; configure Nginx to deny the data directory.
+Build and upload the ZIP described in [`integrations/wordpress/README.md`](../../integrations/wordpress/README.md). The plugin defaults to private storage outside the effective document root, initializes a fresh schema on activation, counts eligible document GETs, and exposes settings and reports to users with `manage_options`. Do not add another tracker to plugin-counted pages. Review the plugin guide's private-path override and protected legacy migration instructions.
 
 ## Plain PHP
 
