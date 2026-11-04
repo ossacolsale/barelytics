@@ -140,14 +140,14 @@ function barelytics_wp_shared_admin_page(): void
     if (!is_file($index)) { echo '<div class="wrap"><h1>Barelytics administration unavailable</h1><p>Reinstall the plugin package to restore its admin UI.</p></div>'; return; }
     $nonce = wp_create_nonce('barelytics_admin_ui');
     $configUrl = add_query_arg(['action' => 'barelytics_admin_ui_config', '_wpnonce' => $nonce], admin_url('admin-ajax.php'));
-    $cssUrl = plugins_url('barelytics-core/admin-ui/admin.css', __FILE__);
-    $appUrl = plugins_url('barelytics-core/admin-ui/app.js', __FILE__);
+    $cssUrl = add_query_arg(['ver' => substr((string) hash_file('sha256', __DIR__ . '/barelytics-core/admin-ui/admin.css'), 0, 12)], plugins_url('barelytics-core/admin-ui/admin.css', __FILE__));
+    $appUrl = add_query_arg(['ver' => substr((string) hash_file('sha256', __DIR__ . '/barelytics-core/admin-ui/app.js'), 0, 12)], plugins_url('barelytics-core/admin-ui/app.js', __FILE__));
     $html = (string) file_get_contents($index);
     if (!preg_match('/<body[^>]*>(.*?)<\/body>/is', $html, $body)) { echo '<div class="wrap"><p>Barelytics administration UI is invalid.</p></div>'; return; }
     echo '<link rel="stylesheet" href="' . esc_url($cssUrl) . '">';
     echo '<script src="' . esc_url($configUrl) . '"></script>';
     echo '<script type="module" src="' . esc_url($appUrl) . '"></script>';
-    echo $body[1];
+    echo str_replace('admin-ui/brand-mark.png', esc_url(plugins_url('barelytics-core/admin-ui/brand-mark.png', __FILE__)), $body[1]);
 }
 
 add_action('admin_post_barelytics_save', static function (): void {

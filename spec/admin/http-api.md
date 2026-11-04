@@ -41,3 +41,12 @@ PHP privacy saves accept boolean `daily_reach_enabled`, independently acknowledg
 as Extended; `POST /api/strict` disables it and delete-all includes its aggregates.
 The UI must check `daily_reach_available` before offering enablement or calling
 `reach`; unsupported adapters keep that capability false.
+
+The shared administration presents date-based tables newest-first and charts in
+chronological order. It sorts complete, unpaginated timeline responses for display
+without changing existing endpoint ordering. Rankings and paginated day/path
+reports retain server ordering and deterministic ties. The PHP adapter clamps
+paginated page/path/dimension requests to the final available page before querying
+rows (page 1 for empty results). Session capabilities may include `account_url`,
+`audit_url` and `diagnostics_url` for standalone PHP tools; host-authenticated
+adapters omit tools they do not provide.

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 if (PHP_VERSION_ID < 80200 || PHP_VERSION_ID > 80599) { http_response_code(404); exit; }
 require_once __DIR__ . '/src/Barelytics.php';
+require_once __DIR__ . '/src/AdminPresentation.php';
 
 use function Barelytics\adminHeaders;
 use function Barelytics\connectDatabase;
@@ -95,12 +96,11 @@ if ($db instanceof PDO) {
     ];
 }
 $csrf = csrfToken();
-?><!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Diagnostics · Barelytics</title><link rel="stylesheet" href="admin.css"></head>
-<body><main class="wrap"><header><p class="brand"><img src="admin-ui/brand-mark.png" width="72" height="50" alt="Barelytics"></p><h1>Database diagnostics</h1><p><a href="admin.php">Back to administration</a></p></header>
+\Barelytics\adminPageStart('Database diagnostics', 'diagnostics');
+?>
 <?php if ($error !== null): ?><p class="notice error">Diagnostics could not connect: <?= escape($error) ?></p><?php endif; ?>
 <?php if ($checks): ?><section class="card"><h2>Read-only diagnostics</h2><p>These checks read the installed configuration and storage status. They do not run migrations or change database settings.</p><table><tbody><?php foreach ($checks as [$label, $value]): ?><tr><th><?= escape($label) ?></th><td><?= escape((string) $value) ?></td></tr><?php endforeach; ?></tbody></table></section>
 <section class="card"><h2>Explicit database probe</h2><p>This administrator-triggered test creates a uniquely named temporary table, tests transactional create/read/delete operations, commits, then drops the table. WAL status is checked separately.</p><form method="post"><input type="hidden" name="csrf" value="<?= escape($csrf) ?>"><input type="hidden" name="action" value="database_probe"><button>Run database probe</button></form>
 <?php if (is_array($probe)): ?><h3>CRUD result: <?= $probe['ready'] ? 'PASS' : 'FAIL' ?></h3><ul><?php foreach ($probe['steps'] as $step): ?><li><?= escape($step['status']) ?> <?= escape($step['name']) ?><?= isset($step['error']) ? ': ' . escape($step['error']) : '' ?></li><?php endforeach; ?></ul><?php endif; ?>
 <?php if (is_array($wal)): ?><h3>WAL result: <?= $wal['ready'] ? 'PASS' : 'FAIL' ?></h3><p>Journal mode: <?= escape($wal['mode']) ?>. <?= $wal['mode'] === 'wal' ? 'WAL: ' . ($wal['wal_exists'] ? 'present' : 'missing') . ', ' . ($wal['wal_writable'] ? 'writable' : 'not writable') . '; SHM: ' . ($wal['shm_exists'] ? 'present' : 'missing') . ', ' . ($wal['shm_writable'] ? 'writable' : 'not writable') . '.' : 'WAL is not enabled; this mode is reported without treating it as an error.' ?><?php if ($wal['error']): ?> <?= escape($wal['error']) ?><?php endif; ?></p><?php endif; ?></section><?php endif; ?>
-</main></body></html>
+<?php \Barelytics\adminPageEnd(); ?>

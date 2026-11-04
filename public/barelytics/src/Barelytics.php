@@ -573,6 +573,7 @@ function runtimePrivacyChecks(): array
     $localTracker = $runtimeAvailable && str_contains($runtimeCode[0], "current.src") && str_contains($runtimeCode[0], "endpoint.origin !== window.location.origin")
         && str_contains($runtimeCode[0], 'navigator.sendBeacon') && str_contains($runtimeCode[0], 'fetch(endpoint');
     return [
+        ['name' => 'Tracker source contains no analytics cookie, localStorage or sessionStorage access', 'status' => $runtimeAvailable && !preg_match('/\b(?:localStorage|sessionStorage|document\.cookie)\b/i', $runtimeCode[0]) ? 'PASS' : 'FAIL'],
         ['name' => 'Same-origin tracker endpoint', 'status' => $localTracker && !$remoteEndpoint ? 'PASS' : 'FAIL'],
         ['name' => 'No third-party analytics or enrichment client in runtime sources', 'status' => $runtimeAvailable && !$remoteEndpoint && !$remoteClient ? 'PASS' : 'FAIL'],
     ];

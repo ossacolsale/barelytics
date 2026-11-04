@@ -69,11 +69,14 @@ try {
         await page.locator('input[name="password"]').fill('synthetic-browser-admin-password');
         await page.getByRole('button',{name:'Sign in',exact:true}).click();
         await page.goto(base+'/barelytics/admin.php?ui=1',{waitUntil:'networkidle'});
+        await page.locator('.section-nav a').filter({hasText:'Daily Reach'}).click();
         await page.waitForFunction(()=>document.querySelector('#reach-metrics strong')?.textContent==='1');
         assert.equal(await page.locator('[name="daily_reach_enabled"]').isChecked(),true);
         assert.match(await page.locator('#reach').innerText(),/not an exact count of people or all unique visitors/);
+        await page.locator('.section-nav a').filter({hasText:'Privacy settings'}).click();
         page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'Return to Strict Mode',exact:true}).click();
         await page.waitForFunction(()=>document.querySelector('#privacy-result')?.textContent.includes('STRICT'));
+        await page.locator('.section-nav a').filter({hasText:'Daily Reach'}).click();
         await page.waitForFunction(()=>document.querySelector('#reach-state')?.textContent.includes('Collection is disabled'));
         assert.equal(await page.locator('#reach-metrics strong').textContent(),'1');
         assert.equal(await page.locator('[name="daily_reach_enabled"]').isChecked(),false);

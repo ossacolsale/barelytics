@@ -25,6 +25,7 @@ function automationReport(PDO $db, string $from, string $to, string $bucketSql =
     $params = [':from' => $from, ':to' => $to];
     $total = (int) queryColumn($db, 'SELECT COALESCE(SUM(requests),0) FROM automation_daily WHERE day BETWEEN :from AND :to', $params);
     $count = (int) queryColumn($db, 'SELECT COUNT(*) FROM (SELECT path FROM automation_daily WHERE day BETWEEN :from AND :to GROUP BY path)', $params);
+    $page = min($page, max(1, (int) ceil($count / $perPage)));
     return ['total' => $total, 'verified' => false, 'page' => $page, 'per_page' => $perPage, 'total_rows' => $count, 'pages' => (int) ceil($count / $perPage),
         'timeline' => queryRows($db, 'SELECT ' . $bucketSql . ' AS period,SUM(requests) AS requests FROM automation_daily WHERE day BETWEEN :from AND :to GROUP BY period ORDER BY period', $params),
         'categories' => queryRows($db, 'SELECT category,SUM(requests) AS requests FROM automation_daily WHERE day BETWEEN :from AND :to GROUP BY category ORDER BY requests DESC,category', $params),
@@ -52,7 +53,7 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
 
     try {
         if ($method === 'GET') {
-            if ($resource === 'session') adminApiReply(200, ['authenticated' => true, 'csrf' => $csrf, 'retention_days' => $retention, 'capabilities' => ['logout' => true, 'delete_all' => true, 'account_url' => 'account.php']]);
+            if ($resource === 'session') adminApiReply(200, ['authenticated' => true, 'csrf' => $csrf, 'retention_days' => $retention, 'capabilities' => ['logout' => true, 'delete_all' => true, 'account_url' => 'account.php', 'diagnostics_url' => 'diagnostics.php', 'audit_url' => 'audit.php']]);
             if ($resource === 'privacy') adminApiReply(200, $config);
             if ($resource === 'reach') adminApiReply(200, ['available' => dailyReachAvailable(), 'enabled' => $config['daily_reach_enabled'], 'reporting_contract_version' => REACH_REPORTING_VERSION, 'period' => $period,
                 'total' => (int) queryColumn($db, 'SELECT COALESCE(SUM(reports),0) FROM daily_reach WHERE day BETWEEN :from AND :to', [':from' => $from, ':to' => $today]),
@@ -68,6 +69,7 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             if ($resource === 'pages' || $resource === 'daily') {
                 $countSql = $resource === 'pages' ? 'SELECT COUNT(*) FROM (SELECT path FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY path)' : 'SELECT COUNT(*) FROM (SELECT day,path FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY day,path)';
                 $count = (int) queryColumn($db, $countSql, [':from' => $from, ':to' => $today]);
+                $page = min($page, max(1, (int) ceil($count / $perPage))); $offset = ($page - 1) * $perPage;
                 $rows = $resource === 'pages'
                     ? queryRows($db, 'SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY path ORDER BY views DESC,path LIMIT :limit OFFSET :offset', [':from' => $from, ':to' => $today, ':limit' => $perPage, ':offset' => $offset])
                     : queryRows($db, 'SELECT day,path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY day,path ORDER BY day DESC,views DESC,path LIMIT :limit OFFSET :offset', [':from' => $from, ':to' => $today, ':limit' => $perPage, ':offset' => $offset]);
@@ -92,17 +94,18 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
                 $params = [':from' => $from, ':to' => $today]; if ($table === 'dimensions_daily') $params[':dimension'] = $dimension;
                 if (array_key_exists('path', $query)) { $where .= ' AND path=:path'; $params[':path'] = $pagePath; }
                 $count = (int) queryColumn($db, 'SELECT COUNT(*) FROM (SELECT ' . $column . ' FROM ' . $table . ' WHERE ' . $where . ' GROUP BY ' . $column . ')', $params);
+                $page = min($page, max(1, (int) ceil($count / $perPage))); $offset = ($page - 1) * $perPage;
                 $rows = queryRows($db, 'SELECT ' . $column . ' AS value,SUM(views) AS views FROM ' . $table . ' WHERE ' . $where . ' GROUP BY ' . $column . ' ORDER BY views DESC,value LIMIT :limit OFFSET :offset', $params + [':limit' => $perPage, ':offset' => $offset]);
                 adminApiReply(200, ['dimension' => $dimension, 'label' => $dimension, 'enabled' => true, 'rows' => $rows, 'total_rows' => $count, 'page' => $page, 'per_page' => $perPage, 'pages' => (int) ceil($count / $perPage)]);
             }
             if ($resource === 'system') adminApiReply(200, ['application' => 'Barelytics PHP', 'runtime' => PHP_VERSION, 'schema_version' => schemaVersion($db), 'current_schema_version' => CURRENT_SCHEMA_VERSION, 'migration_required' => schemaVersion($db) < CURRENT_SCHEMA_VERSION, 'capabilities' => ['cleanup' => true, 'delete_all' => true, 'logout' => true]]);
             if ($resource === 'audit') {
                 $selfTest = privacySelfTest($db);
-                adminApiReply(200, ['application' => 'Barelytics PHP', 'contract_version' => CONTRACT_VERSION, 'schema_version' => schemaVersion($db), 'profile' => $config['profile'], 'fingerprint' => privacyFingerprint($db), 'configuration' => $config, 'historical_dimensions' => $selfTest['schema']['historical_dimensions'], 'historical_reach' => $selfTest['schema']['historical_reach'], 'configuration_history' => queryRows($db, 'SELECT timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 100'), 'checks' => $selfTest['checks'], 'result' => $selfTest['result']]);
+                adminApiReply(200, ['application' => 'Barelytics PHP', 'contract_version' => CONTRACT_VERSION, 'schema_version' => schemaVersion($db), 'profile' => $config['profile'], 'fingerprint' => privacyFingerprint($db), 'configuration' => $config, 'historical_dimensions' => $selfTest['schema']['historical_dimensions'], 'historical_reach' => $selfTest['schema']['historical_reach'], 'configuration_history' => queryRows($db, 'SELECT timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version FROM privacy_configuration_history ORDER BY timestamp DESC,rowid DESC LIMIT 100'), 'checks' => $selfTest['checks'], 'result' => $selfTest['result']]);
             }
             if ($resource === 'integration') {
                 $base = requestBasePath();
-                adminApiReply(200, ['instructions' => 'Install Barelytics by FTP/SFTP and include the tracker on document pages.', 'javascript_snippet' => '<script defer src="' . $base . 'track.js"></script>']);
+                adminApiReply(200, ['instructions' => 'Install Barelytics by FTP/SFTP and include the tracker on document pages.', 'javascript_snippet' => '<script defer src="' . $base . 'track.js"></script>', 'php_snippet' => "require_once rtrim(\$_SERVER['DOCUMENT_ROOT'], '/') . '" . $base . "src/Barelytics.php';\n\\Barelytics\\track();"]);
             }
             adminApiReply(404, null, 'not_found', 'Administration resource not found.');
         }

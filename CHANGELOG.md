@@ -14,6 +14,8 @@ All notable changes to Barelytics are documented here.
 
 ### Added
 
+- Consolidate PHP administration on the shared dashboard, with grouped responsive navigation, shared account/audit/diagnostic styling, contextual page detail, on-demand reports and a small non-JavaScript fallback. Preserve legacy entry points and FTP installation.
+
 - Optional PHP daily browser reach reports, disabled by default: a shared tracker IndexedDB transaction authorizes one daily send attempt, with no identifier, cookie or server browser record. Includes bounded prepare/count endpoints, UTC boundary grace, additive schema 4, settings, audit, retention, deletion and shared dashboard.
 - Real-browser reach regression harness for Chrome/Chromium, Firefox and WebKit where available; other runtime adapters explicitly retain reach unavailable.
 
@@ -22,6 +24,9 @@ All notable changes to Barelytics are documented here.
 - Explicit opt-in browser referrer protocol v2 that sends only a minimized hostname; Strict requests remain path-only and ignore the beacon Referer header.
 
 ### Fixed
+
+- Constrain long administration paths, display date tables newest-first, bound PHP pagination, preserve navigation/filter context and unsaved privacy settings, and version local PHP administration assets.
+- Distinguish optional IndexedDB source capability from effective Strict behavior in PHP privacy audits while retaining forbidden-storage source checks.
 
 - Use one canonical UTC event day for aggregate writes, serialize shared SQLite connection operations, roll back interrupted writes, preserve existing settings on reopen and refuse future schemas.
 - Run bounded automatic retention in PHP without FastCGI, WordPress and native integrations, resuming pending batches on subsequent requests; initialize fresh WordPress storage on activation.

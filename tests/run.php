@@ -159,7 +159,7 @@ $installerSource = (string) file_get_contents(dirname(__DIR__) . '/public/barely
 $assert((bool) preg_match('/^use function Barelytics\\\\databasePath;\s*$/m', $installerSource), 'installer imports the namespaced databasePath function');
 $assert(function_exists('Barelytics\\databasePath'), 'namespaced databasePath helper is available');
 $runtimeChecks = runtimePrivacyChecks();
-$assert(count($runtimeChecks) === 2 && count(array_filter($runtimeChecks, static fn($check) => $check['status'] !== 'PASS')) === 0, 'runtime privacy source scan passes without matching its own URL detector');
+$assert(in_array('Tracker source contains no analytics cookie, localStorage or sessionStorage access', array_column($runtimeChecks, 'name'), true) && count(array_filter($runtimeChecks, static fn($check) => $check['status'] !== 'PASS')) === 0, 'runtime privacy source scan passes without matching its own URL detector');
 $tokenFixture = bin2hex(random_bytes(32));
 $tokenPath = sys_get_temp_dir() . '/barelytics-token-' . bin2hex(random_bytes(6));
 file_put_contents($tokenPath, 'sha256:' . hash('sha256', $tokenFixture));

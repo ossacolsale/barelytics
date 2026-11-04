@@ -51,3 +51,11 @@ value. Reach requests omit cookies/referrers; SQL has only day/report totals.
 Disable and verify counts stop while `historical_reach` remains visible until
 retention/delete-all. An inactive browser marker requires later host/CMP cleanup;
 server disablement cannot remotely delete it.
+
+The HTML/JSON PHP audit distinguishes `tracker_source_capabilities` from
+`effective_configuration` and retained historical aggregates. The presence of
+IndexedDB support in `track.js` is a static capability, not evidence of storage
+access in Strict Mode. Source checks still reject analytics cookies, localStorage
+and sessionStorage; effective reach configuration and schema checks remain part
+of the self-test. Actual browser access must be verified using the procedure above
+and the behavior-based browser tests, rather than inferred from a source string.

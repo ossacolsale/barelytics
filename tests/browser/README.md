@@ -1,4 +1,4 @@
-# Daily Reach real-browser regression tests
+# Administration and Daily Reach browser regression tests
 
 These development-only tests launch a temporary PHP server and synthetic SQLite
 store and browser profiles. They never use an existing personal profile and are
@@ -33,3 +33,22 @@ popup windows and normal browser close/relaunch exercise real IndexedDB.
 A normal declared User-Agent exercises the eligible path because HeadlessChrome
 is intentionally classified as automation. The bot scenario overrides the HTTP
 header explicitly, independently of a browser engine's navigator UA behavior.
+
+## Administration UI
+
+`npm test` also runs `admin.mjs`; `npm run test:admin` runs it independently.
+`ADMIN_BROWSERS` selects engines (defaults to `REACH_BROWSERS`, or all three).
+`REACH_CHROME_EXECUTABLE` works in both harnesses.
+`ADMIN_SCREENSHOTS` sets an output folder (default
+`/tmp/barelytics-admin-screenshots`). Screenshots cover all reports plus account,
+audit and diagnostics, with desktop/mobile captures and overview checks at
+1440, 1280, 1024, 768, 390 and 320 CSS pixels.
+
+The fixture contains 365 UTC days across year boundaries, a 512-byte normalized
+path, Unicode/encoded paths, near-identical deeply nested paths, large counts,
+dimensions, automation and Daily Reach aggregates. It tests both `/barelytics/`
+and `/subdirectory/barelytics/`, backward-compatible routes, newest-first dates,
+pagination boundaries, page detail/focus/history, lazy requests, unsaved settings,
+Strict/Extended states, audit source/configuration separation, CSS status/type,
+console errors, overflow, authorization and CSRF. These fixtures are temporary and
+never contain real analytics data.

@@ -106,6 +106,8 @@ session_api="$(curl -A 'Mozilla/5.0' -sS -b "$jar" "$base/barelytics/admin.php?a
 api_csrf="$(php -r '$j=json_decode($argv[1], true); if (empty($j["ok"]) || empty($j["data"]["authenticated"])) exit(1); echo $j["data"]["csrf"];' "$session_api")"
 dashboard_api="$(curl -A 'Mozilla/5.0' -sS -b "$jar" "$base/barelytics/admin.php?api=dashboard&period=30&bucket=day")"
 php -r '$j=json_decode($argv[1], true); if (empty($j["ok"]) || !array_key_exists("active_pages", $j["data"])) exit(1);' "$dashboard_api"
+bounded_api="$(curl -fsS -b "$jar" "$base/barelytics/admin.php?api=pages&page=10000")"
+php -r '$j=json_decode($argv[1],true); if ($j["data"]["page"] !== 1 || $j["data"]["rows"] !== []) exit(1);' "$bounded_api"
 strict_api="$(curl -A 'Mozilla/5.0' -sS -b "$jar" -H 'Content-Type: application/json' --data-binary "{\"csrf\":\"$api_csrf\"}" "$base/barelytics/admin.php?api=strict")"
 php -r '$j=json_decode($argv[1], true); if (empty($j["ok"]) || $j["data"]["profile"] !== "strict") exit(1);' "$strict_api"
 
@@ -131,7 +133,9 @@ status="$(curl -A 'Mozilla/5.0' -sS -o /dev/null -w '%{http_code}' -H 'Content-T
 status="$(curl -A 'Mozilla/5.0' -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data "{\"path\":\"/x'); DROP TABLE pageviews_daily;--\"}" "$base/barelytics/track.php")"
 [[ "$status" == 204 ]]
 dashboard="$(curl -A 'Mozilla/5.0' -sS -b "$jar" "$base/barelytics/admin.php")"
-grep -q '&#039;)' <<<"$dashboard"
+grep -q 'id="page-title"' <<<"$dashboard"
+page_json="$(curl -fsS -b "$jar" "$base/barelytics/admin.php?api=pages")"
+php -r '$j=json_decode($argv[1],true); if (!str_contains(json_encode($j["data"]["rows"]), "DROP TABLE")) exit(1);' "$page_json"
 php -r '$d=new PDO("sqlite:".$argv[1]); $n=(int)$d->query("SELECT views FROM pageviews_daily WHERE path=\047/article\047")->fetchColumn(); if ($n !== 1) exit(1);' "$db"
 php -r '$d=new PDO("sqlite:".$argv[1]); $n=(int)$d->query("SELECT COUNT(*) FROM pageviews_daily")->fetchColumn(); if ($n !== 2) exit(1);' "$db"
 
