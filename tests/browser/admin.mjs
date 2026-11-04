@@ -23,18 +23,43 @@ try {
   for(const name of (process.env.ADMIN_BROWSERS || process.env.REACH_BROWSERS || 'chromium,firefox,webkit').split(',')) {
     const browser=await engines[name].launch({headless:true,...(name==='chromium' && process.env.REACH_CHROME_EXECUTABLE?{executablePath:process.env.REACH_CHROME_EXECUTABLE}:{})});
     try {
-      const context=await browser.newContext();const page=await context.newPage();const errors=[];const assets=[];const consoleErrors=[];let expectedNetworkFailure=false;
+      const context=await browser.newContext();const page=await context.newPage();const errors=[];const assets=[];const consoleErrors=[];const screenshotDiagnostics=[];let expectedNetworkFailure=false;let screenshotDepth=0;let screenshotCspBudget=0;
+      const webkitScreenshotCsp = "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive of the Content Security Policy.";
       await page.route('**/favicon.ico',route=>route.fulfill({status:204}));
-      page.on('console',message=>{if(message.type()==='error' && !expectedNetworkFailure)consoleErrors.push(message.text());});
+      page.on('console',message=>{
+        if(message.type()!=='error' || expectedNetworkFailure)return;
+        // Playwright WebKit toggles a temporary `body {}` stylesheet while
+        // synchronizing screenshots. Keep that tool diagnostic separate only
+        // during capture; real application console/CSP errors still fail.
+        if(name==='webkit' && screenshotDepth>0 && screenshotCspBudget>0 && message.text()===webkitScreenshotCsp){screenshotCspBudget--;screenshotDiagnostics.push(message.location());return;}
+        consoleErrors.push(message.text());
+      });
+      const captureScreenshot=async options=>{
+        screenshotDepth++;screenshotCspBudget=1;
+        try{return await page.screenshot(options);}
+        finally{screenshotDepth--;screenshotCspBudget=0;}
+      };
       page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.url().includes('.css'))assets.push({url:r.url(),status:r.status(),type:r.headers()['content-type']});});
       for(const prefix of ['/barelytics/','/subdirectory/barelytics/']) {
         await page.goto(base+prefix+'admin.php');
         if(await page.locator('[name=password]').count()){await page.locator('[name=password]').fill('synthetic-browser-admin-password');await page.getByRole('button',{name:'Sign in',exact:true}).click();}
+        if(name==='webkit'){
+          // A genuine inline-style violation outside screenshot capture must
+          // remain blocked and reach the application-error collector.
+          const before=consoleErrors.length;
+          const rejected=page.waitForEvent('console',{predicate:message=>message.type()==='error' && message.text()===webkitScreenshotCsp});
+          await page.evaluate(()=>{const style=document.createElement('style');style.id='csp-regression-probe';style.textContent=':root { --barelytics-csp-probe: forbidden; }';document.head.append(style);});
+          await rejected;
+          assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--barelytics-csp-probe')),'');
+          assert.equal(consoleErrors.length,before+1);
+          assert.equal(consoleErrors.pop(),webkitScreenshotCsp);
+          await page.evaluate(()=>document.getElementById('csp-regression-probe').remove());
+        }
         if(process.env.ADMIN_BASELINE){
           for(const target of ['admin.php','admin.php?view=pages','admin.php?view=daily','admin.php?view=dimensions','admin.php?ui=1','account.php','audit.php','diagnostics.php']){
             await page.goto(base+prefix+target,{waitUntil:'networkidle'});
             const evidence=await page.evaluate(()=>({url:location.href,base:document.baseURI,css:[...document.styleSheets].map(s=>s.href),font:getComputedStyle(document.body).font,overflow:document.documentElement.scrollWidth>innerWidth,nav:!!document.querySelector('nav')}));
-            console.log(JSON.stringify(evidence));await page.screenshot({path:resolve(screenshots,'before-'+prefix.replaceAll('/','_')+target.replaceAll(/[^a-z]/g,'_')+'.png'),fullPage:true});
+            console.log(JSON.stringify(evidence));await captureScreenshot({path:resolve(screenshots,'before-'+prefix.replaceAll('/','_')+target.replaceAll(/[^a-z]/g,'_')+'.png'),fullPage:true});
           }
           continue;
         }
@@ -50,9 +75,9 @@ try {
           assert.equal(await page.locator('.section-nav a[aria-current=page]').count(),1);
           assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${section} overflow at ${width}`);
           const escaping=await page.locator('#'+section+' .card, #'+section+' .metric, #'+section+' .table-wrap').evaluateAll(nodes=>nodes.filter(n=>!n.closest('details:not([open])') && n.getBoundingClientRect().right>innerWidth+1).map(n=>({class:n.className,right:n.getBoundingClientRect().right,width:innerWidth})));
-          if(escaping.length) await page.screenshot({path:resolve(screenshots,`${name}-overflow-${width}.png`),fullPage:true});
+          if(escaping.length) await captureScreenshot({path:resolve(screenshots,`${name}-overflow-${width}.png`),fullPage:true});
           assert.deepEqual(escaping,[],`${section}: escaping component at ${width}`);
-          await page.screenshot({path:resolve(screenshots,`${name}-${prefix.includes('subdirectory')?'nested':'root'}-${section}-${width}.png`),fullPage:true});
+          await captureScreenshot({path:resolve(screenshots,`${name}-${prefix.includes('subdirectory')?'nested':'root'}-${section}-${width}.png`),fullPage:true});
         };
         for(const width of [1440,1280,1024,768,390,320]) await check('overview',width);
         for(const section of ['pages','daily','dimensions','automation','reach','privacy','maintenance','audit','integration']) for(const width of [1440,390,320]) await check(section,width);
@@ -72,9 +97,9 @@ try {
         assert.equal(await page.locator('#page-detail').isVisible(),true);assert.equal(await page.locator('#selected-path').textContent(),path);
         assert.equal(await page.locator('#period').inputValue(),'90');
         assert.equal(await page.evaluate(()=>document.activeElement.id),'page-title');
-        await page.screenshot({path:resolve(screenshots,`${name}-page-detail-desktop.png`),fullPage:true});
+        await captureScreenshot({path:resolve(screenshots,`${name}-page-detail-desktop.png`),fullPage:true});
         await page.setViewportSize({width:320,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-        await page.screenshot({path:resolve(screenshots,`${name}-page-detail-mobile.png`),fullPage:true});
+        await captureScreenshot({path:resolve(screenshots,`${name}-page-detail-mobile.png`),fullPage:true});
         await page.goBack({waitUntil:'networkidle'});assert.equal(await page.locator('#pages').isVisible(),true);
         await page.goForward({waitUntil:'networkidle'});assert.equal(await page.locator('#page-detail').isVisible(),true);
         for(const target of ['admin.php?view=daily','admin.php?view=dimensions','admin.php?ui=1']){await page.goto(base+prefix+target,{waitUntil:'networkidle'});assert.equal(await page.locator('.sidebar').count(),1);}
@@ -96,7 +121,7 @@ try {
         for(const target of ['account.php','audit.php','diagnostics.php'])for(const width of [1440,390,320]){
           await page.setViewportSize({width,height:900});await page.goto(base+prefix+target,{waitUntil:'networkidle'});
           assert.equal(await page.locator('nav').count(),1);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,target+' overflow');
-          await page.screenshot({path:resolve(screenshots,`${name}-${prefix.includes('subdirectory')?'nested':'root'}-${target}-${width}.png`),fullPage:true});
+          await captureScreenshot({path:resolve(screenshots,`${name}-${prefix.includes('subdirectory')?'nested':'root'}-${target}-${width}.png`),fullPage:true});
         }
         const audit=await (await context.request.get(base+prefix+'audit.php?format=json')).json();
         assert.notEqual(audit.result,'FAIL');assert.equal(audit.tracker_source_capabilities.indexeddb,true);
@@ -136,7 +161,7 @@ try {
               .map(n => ({tag:n.tagName,id:n.id,class:n.className,right:n.getBoundingClientRect().right,scroll:n.scrollWidth,client:n.clientWidth})).slice(0,15)}));
           if (overflow.scroll > overflow.width) {
             console.log(overflow);
-            await page.screenshot({path:resolve(screenshots,`${name}-text-resize-${font || 'default'}-${scale}.png`),fullPage:true});
+            await captureScreenshot({path:resolve(screenshots,`${name}-text-resize-${font || 'default'}-${scale}.png`),fullPage:true});
           }
           assert.equal(overflow.scroll > overflow.width, false, `text resize ${scale}, font ${font || 'default'}`);
           const controls = await page.locator('#report-controls label').evaluateAll(nodes => nodes.map(n => ({width:n.clientWidth, scroll:n.scrollWidth})));
@@ -162,7 +187,7 @@ try {
         rmSync(resolve(directory,'analytics.sqlite'),{force:true});rmSync(resolve(directory,'analytics.sqlite-wal'),{force:true});rmSync(resolve(directory,'analytics.sqlite-shm'),{force:true});
         execFileSync('php',[resolve(root,'tests/browser/admin-fixture.php')],{env});
       }
-      console.log(JSON.stringify({name,version:browser.version(),stylesheetsChecked:assets.length,errors,consoleErrors}));await context.close();
+      console.log(JSON.stringify({name,version:browser.version(),stylesheetsChecked:assets.length,errors,consoleErrors,screenshotCspDiagnostics:screenshotDiagnostics.length}));await context.close();
     }finally{await browser.close();}
   }
 }finally{server.kill();rmSync(directory,{recursive:true,force:true});}

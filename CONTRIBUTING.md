@@ -57,3 +57,40 @@ engines; `REACH_CHROME_EXECUTABLE` selects a local Chrome executable. Report
 actual engines and missing dependencies. The harness creates synthetic private
 profiles/data under the temporary directory and never uses a personal profile.
 No browser/testing dependency is shipped in a runtime package.
+
+## Versions and GitHub releases
+
+Application releases use one version across PHP, Node, Python, .NET, Java, Ruby
+and the WordPress plugin. Keep schema/privacy/protocol revisions separate.
+Choose a patch for fixes, a minor for compatible features and a major for public
+breaking changes. Advance from the latest published version once per release;
+additional work for the same pending release reuses that version.
+
+Update PHP `APPLICATION_VERSION`, package metadata in all five native packages,
+the WordPress plugin header, Ruby's local-package lock entry and each native
+runtime's configuration-history application version. Validate coherence with:
+
+```sh
+python3 scripts/validate_release_versions.py v1.2.0
+```
+
+Before publication, move the completed Unreleased notes into the target release
+section of `CHANGELOG.md`, retaining an empty Unreleased section for future work.
+Run the required PHP/native/package checks and the browser suite on Chromium,
+Firefox and WebKit. Report environments that could not run. Review the complete
+diff and ensure the release commit's GitHub CI is green before creating its tag.
+
+Preparing versions/notes does not publish anything. When the user requests a
+GitHub release, commit/push the validated change, then push a new immutable
+`vMAJOR.MINOR.PATCH` tag at that exact commit. The tag starts
+[Release](.github/workflows/release.yml), which validates versions, tests/builds
+the tagged source, runs all three browser engines, verifies archives, and
+publishes a GitHub Release with assets and SHA-256 checksums. Monitor its result
+and confirm the release tag/assets. This does not deploy a website or publish to
+npm/PyPI/NuGet/Maven/RubyGems. Do not overwrite published tags/assets.
+
+For an interrupted release, the manual Release workflow accepts an existing tag
+and rebuilds its exact immutable commit. Its tooling comes from the default
+branch; use the existing safe-resume logic and report failures instead of
+retargeting a release. A normal code task without a publication request should
+end with the prepared version and any remaining release step stated clearly.

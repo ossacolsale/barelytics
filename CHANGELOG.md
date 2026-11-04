@@ -4,6 +4,8 @@ All notable changes to Barelytics are documented here.
 
 ## Unreleased
 
+## 1.2.0 — 2026-11-04
+
 ### Security
 
 - Reject ambiguous encoded paths and decoded private-route exclusions across all runtimes; align collectors on bounded 8 KiB UTF-8 JSON requests, permitted fields and no-store responses.
@@ -26,6 +28,9 @@ All notable changes to Barelytics are documented here.
 - Explicit opt-in browser referrer protocol v2 that sends only a minimized hostname; Strict requests remain path-only and ignore the beacon Referer header.
 
 ### Fixed
+
+- Let mobile report filters grow with enlarged text and constrain their grid tracks in WebKit, preserving readable native controls at 400% text size.
+- Isolate Playwright screenshot stylesheet diagnostics from application CSP checks in the WebKit administration regression, preserving the production policy and genuine console-error failures.
 
 - Keep administration labels, navigation and report controls within the viewport at 400% text size across system fonts.
 - Control PHP Daily Reach centrally from administration with the ordinary tracker, retaining per-page `false` exclusion and host/CMP permission checks. Use inspectable keepalive pageviews without retrying ambiguous network failures; fall back to a path-only beacon only when fetch is unavailable.

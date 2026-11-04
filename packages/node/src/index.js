@@ -150,7 +150,7 @@ export class Barelytics {
     const serialized = JSON.stringify(config);
     const fingerprint = sha256(JSON.stringify({ contract_version: CONTRACT_VERSION, schema_version: SCHEMA_VERSION, configuration: config }));
     if (this.#db.prepare('SELECT configuration_hash FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 1').get()?.configuration_hash === fingerprint) return;
-    this.#db.prepare('INSERT INTO privacy_configuration_history(timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version) VALUES (?,?,?,?,?,?)').run(new Date().toISOString(), config.profile, serialized, fingerprint, '1.1.0', SCHEMA_VERSION);
+    this.#db.prepare('INSERT INTO privacy_configuration_history(timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version) VALUES (?,?,?,?,?,?)').run(new Date().toISOString(), config.profile, serialized, fingerprint, '1.2.0', SCHEMA_VERSION);
   }
   dashboard(periodDays = 30) {
     const period = validRetention.has(Number(periodDays)) ? Number(periodDays) : 30;

@@ -16,6 +16,13 @@
 - Code and tests describe current implementation; approved contracts in `spec/` describe intended behavior. Investigate and report disagreements instead of silently discarding either source.
 - Do not commit, push, publish, deploy, or otherwise change external services unless explicitly requested.
 
+## Versions and releases
+
+- User-visible fixes and features must have a release target. If package/runtime versions still match the latest published tag, prepare the next SemVer version: patch for fixes, minor for backward-compatible features, major for breaking public contracts. Reuse an already advanced unreleased version instead of bumping it on every edit; raise that target if the accumulated scope requires a larger SemVer increment. Schema and privacy-contract revisions remain separate from the application version.
+- Follow [the release procedure](CONTRIBUTING.md#versions-and-github-releases): align all runtime/package/plugin versions and runtime history markers, validate them, update release notes, and run the required checks. Do not leave completed user-visible work indefinitely under the last published version.
+- Version preparation is local work and does not authorize publication. An explicit user request for a GitHub release authorizes the necessary commit, push, new immutable tag and release workflow after validation; it does not authorize deployment to a website or publishing to package registries. Ordinary implementation requests do not authorize these external actions. Report the prepared version when publication has not been requested.
+- Before tagging, verify the exact commit's CI is green. Never move an existing release tag or bypass a failed check. Monitor the release workflow through its result and verify the published assets; report an actual failure or missing access without calling the release complete.
+
 ## Incomplete work
 
 For significant unfinished work, report its verified status, blocker or open decision, next action, and essential references. Do not leave completed work marked pending.

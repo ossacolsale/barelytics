@@ -16,9 +16,11 @@ To test installed engines only, set `REACH_BROWSERS=chromium,firefox`. For an
 installed Chrome use `REACH_CHROME_EXECUTABLE=/path/to/chrome` and
 `REACH_BROWSERS=chromium`. CI supplies Ubuntu 24.04 browser dependencies.
 `PLAYWRIGHT_BROWSERS_PATH` can select a temporary browser download directory.
-On the local Ubuntu 26.04 host, Firefox ran with
-`PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64`; WebKit lacked required host
-libraries and was not tested successfully. Engine versions/results are recorded
+On the local Ubuntu 26.04 host, fallback builds used
+`PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64`. WebKit verification for 1.2.0
+used verified Ubuntu 24.04 libraries isolated in the temporary Playwright bundle
+and system GIO modules instead of incompatible inherited Snap modules. CI uses
+the supported Ubuntu 24.04 host with `--with-deps`. Engine versions/results are recorded
 in the [ADR](../../docs/decisions/daily-reach.md).
 
 `REACH_CASE_FILTER` runs one matching scenario for diagnosis.
@@ -79,3 +81,12 @@ restart and network loss. The administration fixture includes synthetic retained
 Page Reach rows, zero-valued observations and a partial-day flag for responsive
 Pages/Daily/Page detail checks. PHP `tests/daily-page-reach.php` measures realistic
 aggregate growth and bounded cleanup as well as schema, privacy and cap behavior.
+
+WebKit screenshots in Playwright 1.58 temporarily inject a `body {}` stylesheet
+for animation synchronization, which the production `style-src 'self'` correctly
+blocks. The administration harness records that exact diagnostic separately
+only during screenshot capture, with a budget of one per capture. Additional
+diagnostics, other console errors and the same CSP message outside capture still
+fail. A deliberate inline-style probe verifies
+that the real policy blocks styles and that the application-error collector
+observes the violation; production CSP and the browser context remain unchanged.

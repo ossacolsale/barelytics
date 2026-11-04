@@ -133,7 +133,7 @@ summary { min-height: 44px; padding-block: 10px; cursor: pointer; color: var(--a
   .page-header { flex-wrap: wrap; margin-bottom: 22px; }
   .toolbar { gap: 10px; }
   .report-context { flex-basis: 100%; }
-  .toolbar label { flex: 1 1 110px; }
+  .toolbar label { flex: 1 1 max(110px, 6em); grid-template-columns: minmax(0, 1fr); }
   .toolbar select { min-width: 0; }
   .metric-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .metric { grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 4px 10px; }

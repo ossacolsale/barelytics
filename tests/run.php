@@ -74,7 +74,8 @@ $ciWorkflow = (string) file_get_contents($projectRoot . '/.github/workflows/ci.y
 $releaseWorkflow = (string) file_get_contents($projectRoot . '/.github/workflows/release.yml');
 $phpAction = 'shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962';
 $rubyAction = 'ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94';
-$assert(substr_count($ciWorkflow . $releaseWorkflow, $phpAction) === 4, 'all PHP setup action references are pinned to the reviewed upstream commit');
+$assert(substr_count($ciWorkflow . $releaseWorkflow, $phpAction) === 5, 'all PHP setup action references are pinned to the reviewed upstream commit');
+$assert(str_contains($releaseWorkflow, 'needs: [validate, php, node, python, dotnet, java, ruby, reach-browser]'), 'browser regressions gate GitHub Release publication');
 $assert(substr_count($ciWorkflow . $releaseWorkflow, $rubyAction) === 2, 'all Ruby setup action references are pinned to the reviewed upstream commit');
 $assert(str_contains((string) file_get_contents($projectRoot . '/.github/dependabot.yml'), 'package-ecosystem: github-actions')
     && str_contains((string) file_get_contents($projectRoot . '/.github/dependabot.yml'), 'interval: weekly'), 'Dependabot proposes weekly GitHub Actions updates');

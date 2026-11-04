@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def versions(root: Path = ROOT) -> dict[str, str]:
+    php_text = (root / "public/barelytics/src/Barelytics.php").read_text()
+    php = re.search(r"const\s+APPLICATION_VERSION\s*=\s*['\"]([^'\"]+)", php_text)
     node = json.loads((root / "packages/node/package.json").read_text())["version"]
     python = tomllib.loads((root / "packages/python/pyproject.toml").read_text())["project"]["version"]
     dotnet = ET.parse(root / "packages/dotnet/Barelytics/Barelytics.csproj").findtext(".//Version")
@@ -21,10 +23,14 @@ def versions(root: Path = ROOT) -> dict[str, str]:
     ruby = re.search(r"spec\.version\s*=\s*['\"]([^'\"]+)", ruby_text)
     plugin_text = (root / "integrations/wordpress/barelytics/barelytics.php").read_text()
     wordpress = re.search(r"^ \* Version: (\S+)$", plugin_text, re.MULTILINE)
-    values = {"Node": node, "Python": python, ".NET": dotnet, "Java": java,
+    values = {"PHP": php.group(1) if php else None,
+              "Node": node, "Python": python, ".NET": dotnet, "Java": java,
               "Ruby": ruby.group(1) if ruby else None,
               "WordPress": wordpress.group(1) if wordpress else None}
-    return {name: value for name, value in values.items() if value is not None}
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        raise ValueError("Missing package version metadata: " + ", ".join(missing))
+    return values
 
 
 def main(tag: str, root: Path = ROOT) -> None:
