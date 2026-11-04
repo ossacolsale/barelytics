@@ -44,10 +44,11 @@ Barelytics does not control those systems, and they may process IP addresses, Us
 
 This guide describes technical checks. It does not establish legal compliance, determine whether consent is required, or replace jurisdiction-specific legal review. The site operator remains responsible for applicable legal basis, transparency, retention, third-party processing, server logging, and other obligations.
 
-For optional PHP reach, repeat the check in Strict (no prepare/count requests
-or IndexedDB access) and after acknowledged Extended enablement plus tracker
-opt-in. Inspect only one IndexedDB `{day}` record, no page/history or individual
-value. Reach requests omit cookies/referrers; SQL has only day/report totals.
+For site-wide PHP Reach alone, repeat the check with the same ordinary browser script
+in Strict (no prepare/count requests or IndexedDB access) and after acknowledged
+Extended enablement in administration, with host/CMP permission where required.
+No reach script attribute is needed. Inspect only one IndexedDB `{day}` record,
+no page/history or individual value. Reach requests omit cookies/referrers; SQL has only day/report totals.
 Disable and verify counts stop while `historical_reach` remains visible until
 retention/delete-all. An inactive browser marker requires later host/CMP cleanup;
 server disablement cannot remotely delete it.
@@ -59,3 +60,17 @@ access in Strict Mode. Source checks still reject analytics cookies, localStorag
 and sessionStorage; effective reach configuration and schema checks remain part
 of the self-test. Actual browser access must be verified using the procedure above
 and the behavior-based browser tests, rather than inferred from a source string.
+
+For Daily Page Reach (PHP schema 5), enable its separate control with the normal
+HTML and repeat four visits to one page: four pageviews, at most one page report
+and one site report if enabled. Visit another page and verify only its page
+report increases. Inspect the sole additional fixed IndexedDB `pages` record:
+day, expiry timestamp, up to 512 SHA-256 hashes and a closed-day flag; never plain
+paths or per-browser identifiers. Network count bodies contain only version/day/
+normalized path and two booleans, never local hashes. Inspect SQLite for only
+`daily_page_reach(day,path,reports)`, with no visitor/fingerprint associations or
+optional dimensions. Audit reports `historical_page_reach` independently of
+current enablement. Test expiry on subsequent execution, not physical deletion
+while closed. Verify Strict/denial prevents hashing/storage/prepare/count, and
+explicit cleanup removes both local markers. Check partial-data notices for
+server-capped days; no observed report is not an inferred historical zero.

@@ -75,7 +75,7 @@ grep -q 'at least 12 characters' <<<"$weak_password"
 new_password='changed-password-long-456'
 curl -A 'Mozilla/5.0' -sS -b "$jar" -c "$jar" -d "csrf=$account_csrf&current_password=$password&new_password=$new_password&confirmation=$new_password" "$base/barelytics/account.php" > "$tmp/account-changed"
 grep -q 'Administrator password changed' "$tmp/account-changed"
-php -r '$d=new PDO("sqlite:".$argv[1]); $v=(int)$d->query("SELECT MAX(version) FROM schema_migrations")->fetchColumn(); $setup=$d->query("SELECT value FROM settings WHERE key=\047setup_complete\047")->fetchColumn(); $app=$d->query("SELECT value FROM settings WHERE key=\047application_version\047")->fetchColumn(); $hash=$d->query("SELECT value FROM settings WHERE key=\047admin_password_hash\047")->fetchColumn(); if ($v !== 4 || $setup !== "1" || $app !== "1.1.0" || !password_verify($argv[2], $hash)) exit(1);' "$db" "$new_password"
+php -r '$d=new PDO("sqlite:".$argv[1]); $v=(int)$d->query("SELECT MAX(version) FROM schema_migrations")->fetchColumn(); $setup=$d->query("SELECT value FROM settings WHERE key=\047setup_complete\047")->fetchColumn(); $app=$d->query("SELECT value FROM settings WHERE key=\047application_version\047")->fetchColumn(); $hash=$d->query("SELECT value FROM settings WHERE key=\047admin_password_hash\047")->fetchColumn(); if ($v !== 5 || $setup !== "1" || $app !== "1.1.0" || !password_verify($argv[2], $hash)) exit(1);' "$db" "$new_password"
 rm -f "$jar"
 page="$(curl -A 'Mozilla/5.0' -sS -b "$jar" -c "$jar" "$base/barelytics/admin.php")"
 csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$page")"

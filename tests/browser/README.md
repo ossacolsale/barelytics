@@ -26,6 +26,19 @@ in the [ADR](../../docs/decisions/daily-reach.md).
 No artifact is written to the source tree. The fixture clock affects only the
 local test router; production collectors derive periods from actual server time.
 
+The default fixture emits exactly
+`<script defer src="/barelytics/track.js"></script>`, without a Reach attribute.
+The suite checks central activation from the actual administration panel,
+three same-page reloads (four views, one report/attempt and unchanged day marker),
+Strict storage isolation, legacy true/false attributes and CMP denial/errors.
+Transport scenarios cover missing fetch, CSP blocking, loss before/after SQL,
+fast reload/navigation/closure and the protocol-v2 path-only fallback. Mobile
+suspension and OS process termination are not simulated. No equivalence of mobile
+reliability with beacon is claimed. The CSP case reports the pinned Firefox
+146.0.1 keepalive bypass (Mozilla bug 2012984) as a browser limitation, checks
+that it sends no fallback, and does not claim CSP enforcement there. Chromium
+requires zero deliveries under `connect-src none`.
+
 The suite checks application-level attempt counts separately from committed SQL
 reports. It deliberately drops requests/responses and deletes storage to show
 both missing and duplicate observations, not exactly-once delivery. Two/ten tabs,
@@ -52,3 +65,17 @@ pagination boundaries, page detail/focus/history, lazy requests, unsaved setting
 Strict/Extended states, audit source/configuration separation, CSS status/type,
 console errors, overflow, authorization and CSRF. These fixtures are temporary and
 never contain real analytics data.
+
+Text-resize regressions force navigation open and check 200%/400% text with the
+default font and a generic monospace font. Overflow diagnostics include internal
+scroll sizes as well as element boxes, because oversized text can escape a box
+whose own bounds still fit the viewport.
+
+Daily Page Reach scenarios use the same normal HTML with a separate PHP setting.
+They inspect bounded local hash state and exact hash-free count payloads, combined
+and independent counters, multiple/concurrent pages, secure-hash/storage faults,
+expiry tombstones and cleanup, delayed/expired UTC prepare responses, CMP control,
+restart and network loss. The administration fixture includes synthetic retained
+Page Reach rows, zero-valued observations and a partial-day flag for responsive
+Pages/Daily/Page detail checks. PHP `tests/daily-page-reach.php` measures realistic
+aggregate growth and bounded cleanup as well as schema, privacy and cap behavior.

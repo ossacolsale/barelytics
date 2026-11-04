@@ -37,7 +37,7 @@ For HTML, static pages, and sites without a PHP framework, copy the exact snippe
 <script defer src="/barelytics/track.js"></script>
 ```
 
-The script resolves `track.php` beside itself, so nested paths such as `/tools/barelytics/` work. It uses a same-origin `sendBeacon` request with a fetch keepalive fallback, creates no identifier, and fails silently. The site's Content Security Policy may need its Barelytics path in `script-src` and `connect-src`.
+The script resolves `track.php` beside itself, so nested paths such as `/tools/barelytics/` work. It uses one same-origin fetch with keepalive to inspect server authorization for optional Daily Reach, creates no identifier, and fails silently. If fetch is unavailable it may send one path-only beacon, without Reach; a failed dispatched fetch is never retried. Daily Reach is controlled centrally in PHP Privacy settings and requires the operator’s consent/exemption assessment and host/CMP permission where needed (see [configuration](configuration.md)). The site's Content Security Policy may need its Barelytics path in `script-src` and `connect-src`.
 
 For server-rendered PHP, use the dashboard's path-adjusted example. The basic API is:
 
@@ -74,3 +74,11 @@ To restore, stop/restrict writes, replace the complete data directory from the b
 ## Uninstall
 
 Remove the integration snippet/call, delete the uploaded `barelytics/` application directory, then delete the private data directory and its backups through FTP/SFTP or the hosting file manager. Existing web-server access logs are separate and remain under the host's retention policy.
+
+Optional standalone PHP Daily Page Reach requires schema migration 5 and the
+updated `track.js` plus PHP runtime files. Enable it centrally with Extended
+acknowledgement and the necessary host/CMP authorization; no tracker attribute is
+required. It needs secure Web Crypto/HTTPS and browser IndexedDB. PHP-only server
+calls and WordPress/native adapters do not implement it. See
+[configuration](configuration.md#daily-page-reach-standalone-php) for the separate
+metrics, browser expiration, caps and privacy limitations.

@@ -13,7 +13,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { scroll-padding-top: 24px; }
-body { margin: 0; color: var(--ink); background: var(--paper); font: 400 var(--text-base)/1.6 var(--font); }
+body { margin: 0; color: var(--ink); background: var(--paper); font: 400 var(--text-base)/1.6 var(--font); overflow-wrap: anywhere; }
 a { color: var(--accent); text-underline-offset: 3px; overflow-wrap: anywhere; }
 a:hover { color: var(--accent-hover); }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
@@ -133,7 +133,7 @@ summary { min-height: 44px; padding-block: 10px; cursor: pointer; color: var(--a
   .page-header { flex-wrap: wrap; margin-bottom: 22px; }
   .toolbar { gap: 10px; }
   .report-context { flex-basis: 100%; }
-  .toolbar label { flex: 1; }
+  .toolbar label { flex: 1 1 110px; }
   .toolbar select { min-width: 0; }
   .metric-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .metric { grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 4px 10px; }
@@ -158,3 +158,8 @@ h1,h2,h3,.brand-lockup span,.metric span,.report-context { min-width: 0; overflo
 .card-heading > a { white-space: normal; }
 
 .history-table { min-width: 760px; }
+/* Keep comparisons readable on narrow screens; only the table scrolls. */
+.with-page-reach table { min-width: 420px; }
+.with-page-reach th:last-child { width: 128px; }
+#pages-table.with-page-reach table { min-width: 500px; }
+#daily-table.with-page-reach table { min-width: 600px; }

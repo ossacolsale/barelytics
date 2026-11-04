@@ -90,7 +90,7 @@ export class Barelytics {
     config.retention_days = validRetention.has(retentionRaw) ? retentionRaw : 180;
     config.path_exclusions = setting(this.#db, 'path_exclusions', DEFAULT_EXCLUSIONS.join('\n')).split('\n').filter(x => x.startsWith('/') && x.length <= 200).sort();
     config.bot_patterns = setting(this.#db, 'bot_patterns', '').split('\n').filter(x => x.length > 0 && x.length <= 200);
-    config.automation_collection = true; config.daily_reach_available = false; config.reporting_day = 'UTC';
+    config.automation_collection = true; config.daily_reach_available = false; config.daily_page_reach_available = false; config.daily_page_reach_enabled = false; config.reporting_day = 'UTC';
     config.profile = DIMENSIONS.some(key => config[key]) ? 'extended' : 'strict';
     return config;
   }

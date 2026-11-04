@@ -33,8 +33,10 @@ try {
     if ($payload['version'] === 2 && !\Barelytics\effectivePrivacyConfig($db)['referrer_collection']) { http_response_code(400); exit; }
     $referrer = $payload['referrer_host'] !== null ? 'https://' . $payload['referrer_host'] : '';
     $counted = countRequest($db, $payload['path'], $referrer, true);
-    if ($counted && \Barelytics\dailyReachPrepare($db, $payload['path'])['enabled']) {
-        header('Barelytics-Reach-Enabled: 1');
+    $reach = $counted ? \Barelytics\dailyReachPrepare($db, $payload['path'], null, null, 2) : null;
+    if ($reach !== null && $reach['enabled']) {
+        if ($reach['global_enabled']) header('Barelytics-Reach-Enabled: 1');
+        if ($reach['page_enabled']) header('Barelytics-Page-Reach-Enabled: 1');
         header('Barelytics-Reach-Path: ' . rawurlencode($payload['path']));
     }
 } catch (Throwable $ignored) {

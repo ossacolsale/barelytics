@@ -56,6 +56,9 @@ try {
         };
         for(const width of [1440,1280,1024,768,390,320]) await check('overview',width);
         for(const section of ['pages','daily','dimensions','automation','reach','privacy','maintenance','audit','integration']) for(const width of [1440,390,320]) await check(section,width);
+        await page.goto(base+prefix+'admin.php#pages',{waitUntil:'networkidle'});
+        await page.waitForFunction(()=>document.querySelector('#pages-table thead')?.textContent.includes('Daily Page Reach reports'));
+        assert.match(await page.locator('#pages-table-reach-help').textContent(),/Partial data/);
         await page.setViewportSize({width:1280,height:900});
         await page.goto(base+prefix+'admin.php?view=pages&period=90',{waitUntil:'networkidle'});
         assert.equal(await page.locator('#page-title').textContent(),'Pages');
@@ -100,11 +103,11 @@ try {
         const csrf=(await (await context.request.get(base+prefix+'admin.php?api=session')).json()).data.csrf;
         const forbidden=await context.request.post(base+prefix+'admin.php?api=delete-all',{data:{confirmation:'DELETE'}});assert.equal(forbidden.status(),403);
         const strict=await context.request.post(base+prefix+'admin.php?api=strict',{data:{csrf}});assert.equal(strict.status(),200);
-        const strictAudit=await (await context.request.get(base+prefix+'audit.php?format=json')).json();assert.notEqual(strictAudit.result,'FAIL');assert.equal(strictAudit.effective_configuration.indexeddb,false);
+        const strictAudit=await (await context.request.get(base+prefix+'audit.php?format=json')).json();assert.notEqual(strictAudit.result,'FAIL');assert.equal(strictAudit.effective_configuration.indexeddb,false);assert.equal(strictAudit.effective_configuration.daily_page_reach_enabled,false);assert.equal(strictAudit.historical_page_reach,true);
         await page.goto(base+prefix+'admin.php#dimensions',{waitUntil:'networkidle'});assert.match(await page.locator('#dimension-result').textContent(),/collection is disabled/);
         await page.goto(base+prefix+'admin.php#reach',{waitUntil:'networkidle'});await page.waitForFunction(()=>document.querySelector('#reach-state').textContent.length>0);assert.match(await page.locator('#reach-state').textContent(),/Collection is disabled/);assert.ok(await page.locator('#reach-metrics strong').textContent());
         await page.goto(base+prefix+'admin.php#privacy',{waitUntil:'networkidle'});
-        await page.locator('[name=retention_days]').selectOption('365');await page.locator('[name=daily_reach_enabled]').check();await page.locator('[name=country_collection]').check();await page.locator('[name=confirmation]').check();await page.getByRole('button',{name:'Save settings',exact:true}).click();
+        await page.locator('[name=retention_days]').selectOption('365');await page.locator('[name=daily_reach_enabled]').check();await page.locator('[name=daily_page_reach_enabled]').check();await page.locator('[name=country_collection]').check();await page.locator('[name=confirmation]').check();await page.getByRole('button',{name:'Save settings',exact:true}).click();
         await page.waitForFunction(()=>document.querySelector('#notice').textContent==='Privacy settings saved.');
         assert.deepEqual(consoleErrors,[]);
         // Failed reports stay local and can be retried; the shell remains available.
@@ -118,8 +121,28 @@ try {
         await page.waitForTimeout(250);assert.equal(await page.locator('#metrics .metric span:last-child').first().textContent(),'90 day period');await page.unroute('**/*api=dashboard*period=7*');
         // Keyboard affordances and text resize retain an inspectable layout.
         await page.keyboard.press('Tab');assert.ok(await page.evaluate(()=>document.activeElement!==document.body));
-        for(const scale of [2,4]) { await page.evaluate(scale=>document.documentElement.style.fontSize=`${16*scale}px`,scale);if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)) {console.log(await page.locator('body *').evaluateAll(nodes=>nodes.filter(n=>n.getBoundingClientRect().right>innerWidth+1 && !n.closest('[hidden],details:not([open])')).map(n=>({tag:n.tagName,id:n.id,class:n.className,right:n.getBoundingClientRect().right})).slice(0,12)));await page.screenshot({path:resolve(screenshots,`${name}-text-resize-${scale}.png`),fullPage:true});}assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`text resize ${scale}`); }
-        await page.evaluate(()=>document.documentElement.style.fontSize='');
+        for (const font of ['', 'monospace']) for (const scale of [2, 4]) {
+          await page.evaluate(({font, scale}) => {
+            document.documentElement.style.fontSize = `${16 * scale}px`;
+            if (font) document.documentElement.style.setProperty('--font', font);
+            else document.documentElement.style.removeProperty('--font');
+            document.querySelector('.mobile-navigation').open = true;
+          }, {font, scale});
+          // Measure after font/layout and the chart ResizeObserver have settled.
+          await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+          const overflow = await page.evaluate(() => ({width:innerWidth, scroll:document.documentElement.scrollWidth,
+            nodes:[...document.querySelectorAll('body *')].filter(n => !n.closest('[hidden],details:not([open])')
+              && (n.getBoundingClientRect().right > innerWidth || (n.scrollWidth > n.clientWidth + 1 && getComputedStyle(n).overflowX === 'visible')))
+              .map(n => ({tag:n.tagName,id:n.id,class:n.className,right:n.getBoundingClientRect().right,scroll:n.scrollWidth,client:n.clientWidth})).slice(0,15)}));
+          if (overflow.scroll > overflow.width) {
+            console.log(overflow);
+            await page.screenshot({path:resolve(screenshots,`${name}-text-resize-${font || 'default'}-${scale}.png`),fullPage:true});
+          }
+          assert.equal(overflow.scroll > overflow.width, false, `text resize ${scale}, font ${font || 'default'}`);
+          const controls = await page.locator('#report-controls label').evaluateAll(nodes => nodes.map(n => ({width:n.clientWidth, scroll:n.scrollWidth})));
+          assert.ok(controls.every(n => n.width > 0 && n.scroll <= n.width + 1), 'resized report controls fit their labels');
+        }
+        await page.evaluate(() => {document.documentElement.style.fontSize='';document.documentElement.style.removeProperty('--font');});
         // External PHP tools carry the current report context explicitly.
         await page.setViewportSize({width:1440,height:900});await page.goto(base+prefix+'admin.php#pages?period=90&bucket=day&page=2',{waitUntil:'networkidle'});
         const source=page.url();await page.locator('#account-links a').click();await page.waitForLoadState('networkidle');

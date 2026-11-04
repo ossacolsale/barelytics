@@ -59,6 +59,7 @@ $report = [
     'database_schema_audit' => $schema,
     'historical_dimensions' => $schema['historical_dimensions'] ?? [],
     'historical_reach' => $schema['historical_reach'] ?? false,
+    'historical_page_reach' => $schema['historical_page_reach'] ?? false,
     'self_test' => $selfTest,
     'path_privacy' => ['query_strings' => 'removed', 'fragments' => 'not sent; rejected by tracker endpoint', 'identifier_normalization' => 'long numeric, UUID, ULID, hex and opaque path segments replaced with :id; email paths rejected', 'configured_exclusion_pattern_count' => count($config['path_exclusions'])],
     'retention' => ['aggregate_days' => $config['retention_days'], 'cleanup_status' => $cleanupTime > 0 && time() - $cleanupTime < 86400 ? 'PASS — automatic web-triggered cleanup available' : 'WARN — cleanup pending'],

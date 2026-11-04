@@ -144,15 +144,49 @@ in the first 120 seconds after UTC midnight, attributed to that supplied day.
 No cookie, nonce, individual identifier, receipt or server deduplication record
 is used. Direct endpoint abuse and transport duplication remain possible.
 
-The shared tracker requires explicit `data-daily-reach="true"`. Its normal
-page-view response must additionally advertise reach enablement and a normalized
-safe path before it makes
-any reach request. A Strict server therefore causes no reach preparation,
-storage access or count, including when an old script attribute remains. The
-optional asynchronous `window.BARELYTICS_REACH_PERMISSION` callback must resolve
-to true before prepare, storage access and send; hosts needing consent must
-supply it and return false until consent. Reach transport omits credentials and
-referrers. Ordinary page views remain independent of reach failures.
+The PHP administration setting centrally controls the normal browser tracker;
+`<script defer src="/barelytics/track.js"></script>` needs no per-page opt-in.
+The earlier `data-daily-reach="true"` selected fetch rather than beacon so the
+client could inspect the response. Every ordinary pageview now uses a single
+same-origin fetch with keepalive, and its response must advertise reach
+activation and a validated normalized safe path before any reach request.
+There is no separate discovery request or storage read. A Strict server causes
+no prepare, storage access or count, even when the old `true` attribute remains.
+Explicit `false` is preserved as a per-page privacy opt-out. Native and WordPress
+adapters do not advertise activation and remain unavailable.
+
+The optional asynchronous `window.BARELYTICS_REACH_PERMISSION` callback must
+resolve to true before prepare, storage access and send; hosts needing consent
+must supply it and return false until consent. Central enablement cannot replace
+end-user permission. Reach transport omits credentials and referrers. Explicit
+cleanup remains callable after disablement, without automatic storage access.
+PHP-only server-page calls cannot participate in browser deduplication; use one
+browser tracker instead of also counting server-side. A separate reach-only
+mode is deferred because it would require another discovery transport and is
+unnecessary for the ordinary tracker objective.
+
+Transport assessment: the [Fetch standard](https://fetch.spec.whatwg.org/#request-keepalive-flag)
+allows keepalive work to outlive its environment and limits in-flight keepalive
+body bytes to 64 KiB. [Beacon](https://www.w3.org/TR/beacon/#sec-processing-model)
+also uses keepalive, with browser scheduling/coalescing that can improve mobile
+energy usage. The small existing pageview payload fits the quota on its own,
+but shares it with other pending requests. Fetch lets the client inspect the
+server signal; it cannot guarantee response processing after document closure,
+so a delivered view may have no reach report. No mobile background, OS process
+kill, offline durability or universal reliability parity is claimed. Both
+transports are subject to CSP connect-src in conforming browsers. The pinned
+Firefox 146.0.1 bypasses connect-src for keepalive fetch: the local test observed
+one view/report despite connect-src none, while ordinary fetch was blocked.
+This matches [Mozilla bug 2012984](https://bugzilla.mozilla.org/show_bug.cgi?id=2012984);
+its enforcement is not a passing guarantee on that engine. Chromium 145 blocked
+the request. Use server policy and the CMP callback for Reach authorization,
+not CSP as a consent switch. No browser-version workaround is added to runtime
+code. When fetch is missing, only one path-only beacon is attempted and reach/referrer attribution are unavailable.
+A restricted/throwing fetch or lost response never triggers a beacon or another
+fetch: the server may already have counted the view. Only protocol-v2's explicit
+400 rejection retains its path-only fallback. No unload listener or retry loop
+is added. Browser regressions exercise fast reload/navigation/closure and
+network failure separately from SQL delivery.
 
 One origin-wide IndexedDB database has one object store and one fixed-key record
 containing only `{day}`. A single readwrite transaction reads and, if necessary,
@@ -199,25 +233,41 @@ criteria pass for the PHP reference implementation, with the following evidence.
 | Intact marker suppresses repeats | Sequential visits and persistent profile close/relaunch produce one attempt |
 | Network loss never retries | A dropped request yields zero SQL rows; a dropped response after commit yields one row; subsequent visits send neither again |
 | Independent page views | Storage/permission/network/SQL failures leave ordinary view collection operational |
-| Strict unchanged | No opt-in or a disabled server produces no prepare/count or IndexedDB access; reset also rejects in-flight count |
+| Strict storage isolation | A disabled server with normal or legacy HTML produces no prepare/count or IndexedDB access; reset also rejects in-flight count |
 | Consistent UTC boundaries | Server-clock fixtures, new day, previous-day +119s accepted on its original day, +120s rejected; invalid/future/stale keys rejected |
 | Honest administration | Real login/dashboard/reset tests and visual inspection show received reports, limitations, current disablement and retained history |
 
-Actual browser configurations: Google Chrome 156.0.8078.47 and Playwright Firefox
-146.0.1 on Linux, 22 scenarios each. Firefox used the Ubuntu 24.04 fallback build
-on Ubuntu 26.04. Concurrency and restart use unmodified IndexedDB; denial, quota and missing/aborted
-transaction cases use controlled fault injection in the real engines. The
-harness uses an ordinary declared UA for eligible traffic;
-a bot test supplies a synthetic bot header explicitly. Chrome headless's own UA
+The central-activation revision passed 36 Reach scenarios per engine (72 total)
+on Chromium/Chrome Headless Shell 145.0.7632.6 and Playwright Firefox 146.0.1
+on Linux. The CSP case verifies no fallback while reporting Firefox’s policy
+enforcement limitation separately. Both use the Ubuntu 24.04
+fallback builds on Ubuntu 26.04. The earlier implementation also ran on Google
+Chrome 156.0.8078.47. Concurrency and restart use unmodified IndexedDB; denial,
+quota and missing/aborted transaction cases use controlled fault injection in
+the real engines. The harness uses an ordinary declared UA for eligible traffic;
+a bot test supplies a synthetic bot header explicitly. HeadlessChrome's own UA
 is correctly classified as automation by the existing rules.
 
+Coverage now includes normal HTML without a reach attribute, three reloads with
+four views/one report/one count attempt and unchanged marker, enabling/resetting
+through the actual administration panel without changing HTML, legacy true/false
+attributes, denied/thrown/rejected CMP permission, missing fetch, CSP restrictions,
+lost pageview requests/responses with no duplicate fallback, fast reload,
+navigation and closure, and protocol-v2 rejection followed by one accepted view.
+The administration regression covers both installation paths and six viewport
+widths, including 200%/400% text with default and alternate fonts. Before the CSS
+fix, alternate-font text overflowed its boxes even though their bounding boxes
+stayed inside the viewport; wrapping text and giving report filters a useful
+flex basis fixes the failure without suppressing horizontal overflow globally.
+
 WebKit 26.0 was downloaded but could not launch because required host libraries
-(including libicu74, libxml2 and libmanette) are unavailable. No WebKit pass is
-claimed. CI includes an Ubuntu 24.04 job installing all three engines and their
-dependencies; that remote job and the full runtime/version matrix were not run
-here. See [tests/browser/README.md](../../tests/browser/README.md) for reproduction.
-PHP/HTTP/concurrent SQLite, nine design-model tests, existing native regression
-suites and local packaging also passed; commands are in the [quality review](../quality-review.md).
+(including libicu74, libxml2, libevent, libmanette and libwoff) are unavailable.
+No WebKit pass is claimed. Mobile devices, background suspension/process kills,
+the remote GitHub job and the full runtime/version matrix were not run here.
+CI retains its Ubuntu 24.04 job installing all three engines and dependencies.
+See [tests/browser/README.md](../../tests/browser/README.md) for reproduction.
+PHP/HTTP/concurrent SQLite, design-model, Node, Python, .NET, Java 21 and Ruby
+regressions passed locally; commands are in [CONTRIBUTING](../../CONTRIBUTING.md).
 
 This gate accepts observed partial browser reach reports, not exact people,
 exactly-once delivery, a lower bound or a consent exemption. PHP alone advertises
@@ -225,3 +275,66 @@ availability. WordPress has no public reach endpoints in its package and native
 adapters retain capability false; their completion is future work and cannot be
 activated through this revision's shared UI. Operator enablement requires the
 separate legal/consent assessment and explicit acknowledgement described above.
+
+## Accepted extension: Daily Page Reach
+
+PHP contract revision 4/schema 5 adds optional, independently acknowledged page
+reports while retaining the global metric and centralized activation. The server
+stores only `daily_page_reach(day,path,reports)` with its composite primary key,
+without rowid/secondary indexes. Browser SHA-256 day/path hashes never cross the
+network. No visitor tokens, server fingerprints, salts, idempotency receipts or
+browsing histories are introduced. Version-2 prepare/count explicitly carries
+separate global/page decisions; version 1 keeps its prior meaning. Revalidation
+can suppress a disabled component while committing the other in the same bounded
+transaction. The unchanged IndexedDB version/store permits legacy global clients
+to keep using the original key, with an independent fixed pages key for new code.
+
+A shared page-record expiry and 512-hash limit minimize local state. Expiry uses
+the remaining authoritative UTC period capped at 24 hours, subtracting work since
+prepare. On next authorized access, old/expired hashes are purged. A closed-day
+tombstone prevents expiration or local clock advancement from authorizing fresh
+same-day claims; a newer server day can replace it. JavaScript cannot guarantee
+physical deletion while closed, suspended, disabled or running an old tracker.
+The explicit CMP cleanup deletes all local Reach state. Hashing guessable paths
+is minimization, not anonymization; sensitive route exclusions and consent/legal
+assessment remain essential. The complete contract is [specified here](../../spec/daily-reach.md).
+
+An indexed, bounded 4,096-key day range check on new aggregate paths prevents
+unbounded new-table cardinality. Existing keys need only a lookup/upsert.
+First arrivals under SQLite transaction ordering fill the finite slots; capped
+new paths fail closed. A bounded day-only settings list records partial days
+for the dashboard, without extra analytics tables. This cap bounds only the new
+Page Reach table; it does not retrofit caps onto existing pageview/dimension
+metrics. Do not treat a capped period as complete. The public collector remains
+forgeable, so counts remain observations rather than proof of browsers.
+
+A synthetic SQLite growth test uses 500 safe paths across 30 days: 15,000 rows,
+1,052,672 bytes (about 1.00 MiB including schema/settings), independent of repeated
+report volume. Updating reports by +1,000 preserves row count. With retention 30,
+16 bounded batches remove the synthetic expired rows and leave 241 reusable pages.
+Physical file shrinkage is not promised. Actual size depends on path length,
+SQLite page size and retained days; at retention 180 the cap permits up to 737,280
+Page Reach rows, excluding transient midnight grace. No new worker or dependency
+is needed. Sensitive paths or unique normalized slugs in existing metrics still
+need operator exclusions and hosting/storage assessment.
+
+Regression coverage includes same/multiple pages, 2/10 same-page tabs,
+concurrent different pages, restart, normalized IDs, expiry and tombstones,
+delayed/expired prepare, UTC rollover, CMP denial/withdrawal/cleanup, unavailable
+storage/hash/transactions, ambiguous network loss, independent server disablement,
+SQLite atomicity/locking, caps, bounded retention, audit and delete-all. Pages,
+Daily statistics and Page detail compare daily counts with view counts without
+joining optional dimensions or deriving global Reach. The secure hash API must
+be available; otherwise Page Reach alone fails closed.
+
+Local verification of this extension: 126 real-browser Reach scenarios passed
+(63 each on Chromium 145.0.7632.6 and Firefox 146.0.1), including local read/write
+faults without host-page errors. Administration regression passed both root and
+nested installations, six viewport widths and 200%/400% text; table comparisons
+were visually inspected on desktop/mobile. PHP 8.5/PDO SQLite checks, HTTP/API,
+SQLite process concurrency, the new growth/privacy suite, Node, Python, .NET 10,
+Java 21, Ruby and 20 packaging/design checks passed. CI/release workflows include
+the new PHP suite. WebKit 26 still cannot launch on this host because of missing
+system libraries; no pass is claimed. Mobile OS suspension/process termination,
+the remote GitHub workflows and the full runtime-version matrix were not run.
+The pinned Firefox CSP limitation described above remains explicitly reported.

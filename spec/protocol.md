@@ -24,7 +24,10 @@ URLs or internal referrer paths are accepted. Both the script's explicit
 is rejected with `400`, without a write. Failure to load settings/storage is an
 analytics failure and returns `204` without collecting.
 
-The Extended tracker uses fetch to observe rejection: on an explicit `400` it
+The tracker uses same-origin fetch with keepalive for ordinary pageviews and
+server-controlled Daily Reach activation. Without fetch it may send one
+path-only beacon, with no Reach or referrer attribution. A dispatched fetch
+failure is never retried. For Extended referrer rejection: on an explicit `400` it
 may retry once with only `path` through v1, preserving ordinary page views after
 a server-side Strict reset. It never retries a lost response or other status.
 Remove the explicit script attribute to stop Extended transmissions entirely.
@@ -47,4 +50,6 @@ The optional PHP reach capability uses the separate operations in
 [daily-reach.md](daily-reach.md). Ordinary collector payloads/statuses remain
 unchanged; eligible enabled PHP responses additionally advertise
 `Barelytics-Reach-Enabled: 1` and `Barelytics-Reach-Path` (percent-encoded safe
-normalized path) for explicitly opted-in clients.
+normalized path). The normal script needs no reach attribute; the server signal
+and optional host/CMP permission authorize activation. Explicit
+`data-daily-reach="false"` prevents reach on that page.

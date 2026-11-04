@@ -27,6 +27,8 @@ test('strict is default, aggregates immediately, dimensions require confirmation
   const analytics = new Barelytics({ dataDirectory: directory });
   try {
     assert.equal(analytics.audit().profile, 'strict');
+    assert.equal(analytics.adminData('privacy').daily_page_reach_available, false);
+    assert.equal(analytics.adminData('privacy').daily_page_reach_enabled, false);
     assert.equal(analytics.trackPageView({ path: '/article', userAgent: 'Mozilla/5.0 Chrome/124 Windows' }), true);
     assert.equal(analytics.trackPageView({ path: '/private/report' }), false);
     assert.equal(analytics.trackPageView({ path: '/article', userAgent: 'Googlebot' }), false);

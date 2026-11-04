@@ -313,7 +313,7 @@ public sealed class BarelyticsStore : IDisposable
         return rows;
     }
     private static bool ConfigurationFlag(PrivacyConfiguration config, string key) => key switch { "country_collection" => config.CountryCollection, "referrer_collection" => config.ReferrerCollection, "browser_collection" => config.BrowserCollection, "device_collection" => config.DeviceCollection, _ => config.OsCollection };
-    private static Dictionary<string, object?> PrivacyData(PrivacyConfiguration c) => new() { ["automation_collection"] = true, ["daily_reach_available"] = false, ["reporting_day"] = "UTC", ["country_collection"] = c.CountryCollection, ["referrer_collection"] = c.ReferrerCollection, ["browser_collection"] = c.BrowserCollection, ["device_collection"] = c.DeviceCollection, ["os_collection"] = c.OsCollection, ["retention_days"] = c.RetentionDays, ["profile"] = c.Profile, ["path_exclusions"] = c.PathExclusions, ["bot_patterns"] = c.BotPatterns };
+    private static Dictionary<string, object?> PrivacyData(PrivacyConfiguration c) => new() { ["automation_collection"] = true, ["daily_reach_available"] = false, ["daily_page_reach_available"] = false, ["daily_page_reach_enabled"] = false, ["reporting_day"] = "UTC", ["country_collection"] = c.CountryCollection, ["referrer_collection"] = c.ReferrerCollection, ["browser_collection"] = c.BrowserCollection, ["device_collection"] = c.DeviceCollection, ["os_collection"] = c.OsCollection, ["retention_days"] = c.RetentionDays, ["profile"] = c.Profile, ["path_exclusions"] = c.PathExclusions, ["bot_patterns"] = c.BotPatterns };
 
     private void Migrate()
     {

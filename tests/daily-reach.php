@@ -38,6 +38,6 @@ $audit=privacySelfTest($db);
 $check($audit['result']==='PASS' && $audit['schema']['historical_reach'] && effectivePrivacyConfig($db)['profile']==='strict', 'Disabled reach history does not fail Strict audit.');
 $db->exec("INSERT INTO daily_reach VALUES ('2000-01-01',5)"); cleanRetentionBatch($db);
 $check((int) queryColumn($db,"SELECT COUNT(*) FROM daily_reach WHERE day='2000-01-01'")===0, 'Retention includes reach.');
-$check(migrateDatabase($db)===4 && (int)queryColumn($db,'SELECT COUNT(*) FROM schema_migrations')===4, 'Migration is idempotent.');
+$check(migrateDatabase($db)===\Barelytics\CURRENT_SCHEMA_VERSION && (int)queryColumn($db,'SELECT COUNT(*) FROM schema_migrations')===\Barelytics\CURRENT_SCHEMA_VERSION, 'Migration is idempotent.');
 $check(str_contains((string)queryColumn($db,'SELECT effective_configuration_json FROM privacy_configuration_history WHERE profile=\'EXTENDED\' LIMIT 1'),'"daily_reach_enabled":true'), 'History records enablement.');
 echo "Daily Reach settings, prepare, boundaries, policy, failure, migration, audit and retention checks passed.\n";

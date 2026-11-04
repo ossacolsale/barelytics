@@ -50,3 +50,26 @@ paginated page/path/dimension requests to the final available page before queryi
 rows (page 1 for empty results). Session capabilities may include `account_url`,
 `audit_url` and `diagnostics_url` for standalone PHP tools; host-authenticated
 adapters omit tools they do not provide.
+
+PHP schema 5 adds boolean `daily_page_reach_available`/`daily_page_reach_enabled`
+to privacy configuration. The latter requires its own Extended acknowledgement;
+Strict disables both reach settings, and delete-all includes Page Reach and its
+operational cap flags. Unsupported adapters explicitly report capability false.
+The ordinary browser tracker is centrally controlled with no new HTML attribute.
+
+PHP pages/daily rows add nullable `page_reach_reports`; page detail adds that
+period total and the same nullable field to its bucketed timeline. Existing
+`views`/`total` retain their pageview meanings. Daily rows are newest-first;
+page timelines remain chronological in the API and tables display newest-first.
+Aggregate sources are unioned/grouped without multiplying counts by countries
+or joining reports to optional dimensions. Page-only aggregate keys can appear
+with zero views. Null means no observed Reach data; zero means an existing zero
+aggregate, never an inferred historical backfill.
+
+These responses also include `page_reach:{available,enabled,has_data,partial,
+limited_days,daily_path_limit}` for the selected period. Disabled collection
+retains historical rows; unavailable means the adapter cannot collect this
+metric. Partial flags identify days when the finite server cardinality cap
+rejected new paths. Site-wide `reach` stays separate and is never a sum of page
+reports. Summing daily page reports across a period does not deduplicate browsers
+across that period. Audit adds `historical_page_reach` separately from settings.

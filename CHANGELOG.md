@@ -14,6 +14,8 @@ All notable changes to Barelytics are documented here.
 
 ### Added
 
+- Optional standalone PHP Daily Page Reach, centrally enabled with separate Extended acknowledgement: browser-local bounded expiring SHA-256 day/path claims, combined version-2 Reach transport, aggregate-only schema 5, capped new-page cardinality with partial-data notices, retention/deletion/audit and view/report comparisons. Existing global Reach and v1 requests remain independent.
+
 - Consolidate PHP administration on the shared dashboard, with grouped responsive navigation, shared account/audit/diagnostic styling, contextual page detail, on-demand reports and a small non-JavaScript fallback. Preserve legacy entry points and FTP installation.
 
 - Optional PHP daily browser reach reports, disabled by default: a shared tracker IndexedDB transaction authorizes one daily send attempt, with no identifier, cookie or server browser record. Includes bounded prepare/count endpoints, UTC boundary grace, additive schema 4, settings, audit, retention, deletion and shared dashboard.
@@ -25,6 +27,8 @@ All notable changes to Barelytics are documented here.
 
 ### Fixed
 
+- Keep administration labels, navigation and report controls within the viewport at 400% text size across system fonts.
+- Control PHP Daily Reach centrally from administration with the ordinary tracker, retaining per-page `false` exclusion and host/CMP permission checks. Use inspectable keepalive pageviews without retrying ambiguous network failures; fall back to a path-only beacon only when fetch is unavailable.
 - Constrain long administration paths, display date tables newest-first, bound PHP pagination, preserve navigation/filter context and unsaved privacy settings, and version local PHP administration assets.
 - Distinguish optional IndexedDB source capability from effective Strict behavior in PHP privacy audits while retaining forbidden-storage source checks.
 

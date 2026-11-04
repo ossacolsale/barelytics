@@ -27,6 +27,7 @@ jobs:
         run: |
           php tests/run.php
           php tests/daily-reach.php
+          php tests/daily-page-reach.php
           php tests/wordpress.php
           php tests/sqlite-concurrency.php
       - name: HTTP integration checks

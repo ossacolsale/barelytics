@@ -23,3 +23,18 @@ should drop or reinterpret historical aggregates.
 PHP migration 4 adds only `daily_reach(day PRIMARY KEY, reports)`, as specified
 in [daily-reach.md](daily-reach.md). Native runtimes retain schema 3 and advertise
 reach unavailable; shared database upgrades across these versions are unsupported.
+
+PHP migration 5 adds
+`daily_page_reach(day TEXT NOT NULL,path TEXT NOT NULL,reports INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path)) WITHOUT ROWID`.
+Only that composite aggregate key is indexed; no server page fingerprints or
+visitor association exists. The new setting defaults off on upgrade. A finite
+4,096-new-paths/day cap bounds growth; existing day/path keys still increment.
+Operational capped days are a bounded JSON list in settings, pruned alongside
+retention and cleared by delete-all. New rows follow configurable historical
+retention; only local deduplication hashes have a 24-hour maximum logical age.
+See [Daily Page Reach](daily-reach.md#daily-page-reach--php-schema-5-privacy-contract-revision-4).
+Migration preserves all legacy counts/credentials/settings. Native stores stay
+at schema 3, with both reach capabilities unavailable; WordPress uses PHP schema
+5 but neither public reach capability. Do not share these databases across
+versions or remove new tables to bypass guards. Cleanup frees reusable SQLite
+pages; it need not shrink the physical file without a separate vacuum.

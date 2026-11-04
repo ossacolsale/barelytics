@@ -40,6 +40,7 @@ try
 {
     using var analytics = new BarelyticsStore(new BarelyticsOptions(data));
     if (analytics.Audit().Profile != "strict" || analytics.Audit().Result != "PASS") throw new Exception("Default audit failed: " + JsonSerializer.Serialize(analytics.Audit()));
+    if ((bool)analytics.AdminData("privacy", new Dictionary<string,string>())["daily_page_reach_available"]! || (bool)analytics.AdminData("privacy", new Dictionary<string,string>())["daily_page_reach_enabled"]!) throw new Exception("Unsupported Page Reach was advertised.");
     if (!analytics.TrackPageView("/article") || analytics.TrackPageView("/private/data") || analytics.TrackPageView("/article", "Googlebot")) throw new Exception("Strict collector behavior failed.");
     if (analytics.Dashboard().Total != 1 || analytics.Dashboard().ByPage.Single().Path != "/article") throw new Exception("Aggregate dashboard failed.");
     if ((long)analytics.AdminData("dashboard", new Dictionary<string, string> { ["period"] = "30", ["bucket"] = "day" })["active_pages"]! != 1) throw new Exception("Admin overview contract failed.");

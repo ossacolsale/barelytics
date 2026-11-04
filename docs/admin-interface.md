@@ -39,3 +39,19 @@ assets with `sh scripts/stage-admin-ui.sh`, and run native suites. The
 synthetic SQLite database and tests root and nested mounts, section navigation,
 long paths, date order, pagination, privacy, audit and responsive layouts. Screenshots
 are development artifacts outside the source tree and must be inspected visually.
+
+Daily Reach is controlled centrally by **Daily browser reach reports (Extended)**
+in PHP Privacy settings. The ordinary browser integration snippet needs no
+`data-daily-reach="true"` attribute. Required host/CMP permission remains separate
+from administrator enablement; Strict prevents analytics browser-storage access.
+PHP-only server tracking cannot perform browser reach deduplication. See
+[configuration](configuration.md#daily-browser-reach-reports-php) for compatibility,
+consent assessment and delivery/storage limitations. Other adapters keep the
+setting unavailable.
+
+Standalone PHP also offers a separate default-off **Daily Page Reach** setting.
+Pages, Daily statistics and Page detail compare view counts and received daily
+page reports, with retained/disabled/no-data states and explicit capped-period
+notices. The site-wide Reach report remains independent. Period Page Reach
+values sum daily reports rather than deduplicating across days. See the
+[Page Reach configuration](configuration.md#daily-page-reach-standalone-php).

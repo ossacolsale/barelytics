@@ -70,7 +70,7 @@ module Barelytics
         flags = DIMENSIONS.to_h { |key| [key.to_sym, get(key, '0') == '1'] }
         retention = Integer(get('retention_days', '180')) rescue 180
         retention = 180 unless RETENTION.include?(retention)
-        { **flags, automation_collection: true, daily_reach_available: false, reporting_day: 'UTC', retention_days: retention, profile: flags.values.any? ? 'extended' : 'strict',
+        { **flags, automation_collection: true, daily_reach_available: false, daily_page_reach_available: false, daily_page_reach_enabled: false, reporting_day: 'UTC', retention_days: retention, profile: flags.values.any? ? 'extended' : 'strict',
           path_exclusions: valid_patterns(get('path_exclusions', DEFAULT_EXCLUSIONS.join("\n")).split("\n")),
           bot_patterns: valid_strings(get('bot_patterns', '').split("\n")) }
       end

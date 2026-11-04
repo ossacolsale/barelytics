@@ -12,6 +12,17 @@ IndexedDB day marker only in explicitly enabled Extended measurement. Strict
 retains all existing storage prohibitions. This documented exception is not a
 visitor identifier, cookie or server-side visitor record.
 
+PHP contract revision 4 additionally permits independently enabled Daily Page
+Reach: at most 512 local SHA-256 day/path hashes with a shared expiry no later
+than 24 hours and lazy cleanup on subsequent authorized tracker storage access.
+The server never receives these hashes and adds only day/path/report aggregates.
+Known paths can be guessed and hashed; this is not anonymization. No per-browser
+salt/token, identity, server browsing history or granular dimension association
+is introduced. Consent/exemption and sensitive-route exclusions remain operator
+responsibilities. See the exact storage, expiry, cap and mixed-version behavior
+in [daily-reach.md](daily-reach.md). Strict resets both optional metrics and
+performs no automatic browser storage operations.
+
 Country, referrer hostname, coarse browser category, device category, and operating-system category are optional independent aggregate dimensions. Missing, malformed, or unknown settings disable a dimension. Enabling any dimension changes the effective profile to Extended and requires an explicit administrator acknowledgement. Disabling collection affects future writes only; historical aggregate rows remain intact. A strict-reset action turns every optional dimension off.
 
 Ports must describe technical behavior without claiming legal compliance or universal consent exemptions. Operators remain responsible for reviewing their hosting, access logs, audience, and applicable law.

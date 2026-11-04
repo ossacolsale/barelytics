@@ -46,6 +46,8 @@ class BarelyticsContractTest {
         try(BarelyticsStore store=new BarelyticsStore(temp)) {
             assertEquals("PASS",store.audit().result());
             assertEquals("strict",store.configuration().profile());
+            assertEquals(false,store.adminData("privacy",Map.of()).get("daily_page_reach_available"));
+            assertEquals(false,store.adminData("privacy",Map.of()).get("daily_page_reach_enabled"));
             assertTrue(store.trackPageView("/article","Mozilla/5.0 Chrome/120 Windows",null,null));
             assertFalse(store.trackPageView("/private/record",null,null,null));
             assertFalse(store.trackPageView("/article","Googlebot",null,null));

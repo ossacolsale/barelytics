@@ -12,14 +12,14 @@ const config = window.BARELYTICS_ADMIN_CONFIG || {};
 const apiBase = new URL(config.apiBase || 'api/', window.location.href);
 const $ = (id) => document.getElementById(id);
 const stylesheetMissing = !getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-const state = { reachAvailable: false, csrf: '', retention: 180, pagesPage: 1, dailyPage: 1, automationPage: 1, pageRequest: 0, perPage: 50, route: 'overview', controller: null, ready: false, dirty: false, revision: 0, loaded: new Map() };
+const state = { reachAvailable: false, pageReachAvailable: false, csrf: '', retention: 180, pagesPage: 1, dailyPage: 1, automationPage: 1, pageRequest: 0, perPage: 50, route: 'overview', controller: null, ready: false, dirty: false, revision: 0, loaded: new Map() };
 
 function text(value) { return document.createTextNode(String(value ?? '')); }
 function table(container, headers, rows) {
   container.replaceChildren();
   if (!rows?.length) { const p = document.createElement('p'); p.textContent = 'No data for this selection.'; container.append(p); return; }
   const t = document.createElement('table'), head = t.createTHead().insertRow();
-  for (const h of headers) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = h; if(h === headers[0] && /^(Day|Period)/.test(h)) { th.textContent += ' ↓'; th.setAttribute('aria-sort','descending'); } if (h === 'Views' || h === 'Requests' || h === 'Reports') { th.className = 'numeric'; if (!headers[0].startsWith('Period') && !headers[0].startsWith('Day')) { th.textContent += ' ↓'; th.setAttribute('aria-sort', 'descending'); } } head.append(th); }
+  for (const h of headers) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = h; if(h === headers[0] && /^(Day|Period)/.test(h)) { th.textContent += ' ↓'; th.setAttribute('aria-sort','descending'); } if (h === 'Views' || h === 'Requests' || h === 'Reports') { th.className = 'numeric'; if (!headers[0].startsWith('Period') && !headers[0].startsWith('Day')) { th.textContent += ' ↓'; th.setAttribute('aria-sort', 'descending'); } } if(h === 'Daily Page Reach reports') th.className = 'numeric'; head.append(th); }
   const body = t.createTBody();
   for (const row of rows) { const tr = body.insertRow(); for (const value of row) { const td = tr.insertCell(); if (typeof value === 'number') { td.className = 'numeric'; } if (value instanceof Node) td.append(value); else td.append(text(typeof value === 'number' ? value.toLocaleString() : value)); } }
   container.append(t);
@@ -80,10 +80,24 @@ async function dimensionBreakdown(container, dimension, path, page = 1) {
     nav.append(text(`Page ${page} of ${d.pages} (${d.total_rows} values)`)); container.append(nav);
   }
 }
+function pageReachValue(value) { return value == null ? 'No observed reports' : Number(value); }
+function pageReachHelp(container, data) {
+  $(`${container.id}-reach-help`)?.remove();
+  if (!data) return;
+  const p = document.createElement('p'); p.className = 'note'; p.id = `${container.id}-reach-help`;
+  p.textContent = !data.available ? 'Daily Page Reach is unavailable in this adapter.'
+    : `${data.enabled ? 'Daily Page Reach collection is enabled.' : 'Daily Page Reach collection is disabled; retained reports remain visible.'} ${data.has_data ? '' : 'No observed reports in this period; history is never backfilled. '}These are received browser-page reports, not exact people or site-wide reach. Profiles/devices, clearing/eviction, private browsing, blocked JavaScript, denied permission, local limits, network loss and collector forgery can change counts. Period totals sum daily reports; they do not deduplicate across days.`;
+  if (data.partial) { p.textContent += ` Partial data: the ${data.daily_path_limit.toLocaleString()}-path server limit was reached on ${data.limited_days.join(', ')}.`; p.classList.add('notice'); }
+  container.before(p);
+}
 async function loadPages(kind, page) {
   const d = await request(kind, { ...query(), page, per_page: state.perPage });
-  const rows = (d.rows || []).map(r => kind === 'pages' ? [link(r.path), r.views] : [r.day, link(r.path), r.views]);
-  table($(kind === 'pages' ? 'pages-table' : 'daily-table'), kind === 'pages' ? ['Page', 'Views'] : ['Day (UTC)', 'Page', 'Views'], rows);
+  const includeReach = d.page_reach?.available === true;
+  const rows = (d.rows || []).map(r => [...(kind === 'pages' ? [link(r.path), r.views] : [r.day, link(r.path), r.views]), ...(includeReach ? [pageReachValue(r.page_reach_reports)] : [])]);
+  const container = $(kind === 'pages' ? 'pages-table' : 'daily-table');
+  container.classList.toggle('with-page-reach', includeReach);
+  table(container, [...(kind === 'pages' ? ['Page', 'Views'] : ['Day (UTC)', 'Page', 'Views']), ...(includeReach ? ['Daily Page Reach reports'] : [])], rows);
+  pageReachHelp(container, d.page_reach);
   const pages = kind === 'pages' ? 'pages' : 'daily'; state[`${pages}Page`] = d.page || page;
   pagination(pages, d);
 }
@@ -94,9 +108,12 @@ async function loadPage(path) {
   $('page-path').value = d.path;
   $('selected-path').textContent = d.path;
   $('copy-path').dataset.path = d.path;
-  const rows = newest(d.timeline).map(r => [r.period, r.views]);
-  table($('page-result'), ['Period', 'Views'], rows);
-  $('page-result').prepend(Object.assign(document.createElement('p'), { textContent: `Total: ${Number(d.total).toLocaleString()} views` }));
+  const includeReach = d.page_reach?.available === true;
+  $('page-result').classList.toggle('with-page-reach', includeReach);
+  const rows = newest(d.timeline).map(r => [r.period, r.views, ...(includeReach ? [pageReachValue(r.page_reach_reports)] : [])]);
+  table($('page-result'), ['Period', 'Views', ...(includeReach ? ['Daily Page Reach reports'] : [])], rows);
+  $('page-result').prepend(Object.assign(document.createElement('p'), { textContent: `Total: ${Number(d.total).toLocaleString()} views${includeReach ? ' · Daily Page Reach reports: ' + (d.page_reach_reports == null ? 'No observed reports' : Number(d.page_reach_reports).toLocaleString()) : ''}` }));
+  pageReachHelp($('page-result'), d.page_reach);
   await dimensionBreakdown($('page-dimensions'), $('page-dimension').value, d.path);
 }
 async function loadDimensions() {
@@ -106,10 +123,16 @@ async function loadDimensions() {
 async function loadPrivacy() {
   const d = await request('privacy');
   state.reachAvailable = d.daily_reach_available === true;
+  state.pageReachAvailable = d.daily_page_reach_available === true;
+  const pageReach = $('privacy-form').elements.daily_page_reach_enabled;
+  pageReach.checked = d.daily_page_reach_enabled === true; pageReach.disabled = !state.pageReachAvailable;
+  $('page-reach-capability').textContent = state.pageReachAvailable
+    ? 'Controlled centrally with the normal tracker. Requires Extended acknowledgement and a consent/exemption assessment, plus host/CMP permission where required. Stores at most 512 local day/path SHA-256 hashes, never sent to the server. Expiry and cleanup are lazy; closed browsers cannot delete records. Hashing is minimization, not anonymization. Exclude sensitive or personal routes before enabling.'
+    : 'Unavailable in this adapter; it cannot be enabled here.';
   const reach = $('privacy-form').elements.daily_reach_enabled;
   reach.checked = d.daily_reach_enabled === true; reach.disabled = !state.reachAvailable;
   $('reach-capability').textContent = state.reachAvailable
-    ? 'Requires explicit acknowledgement and data-daily-reach="true" on the tracker. Use the host/CMP permission callback when required.'
+    ? 'Controlled here for the normal browser tracker; no Daily Reach script attribute is required. Requires Extended acknowledgement and the operator’s consent or exemption assessment. Use the host/CMP permission callback when required. Storage restrictions and network failures can miss reports.'
     : 'Unavailable in this adapter; it cannot be enabled here.';
   state.retention = d.retention_days;
   for (const option of $('period').options) option.disabled = Number(option.value) > state.retention;
@@ -275,7 +298,7 @@ $('privacy-form').addEventListener('input', () => { state.dirty = true; });
 $('privacy-form').addEventListener('submit', async e => {
   e.preventDefault(); const form = e.currentTarget;
   const values = Object.fromEntries(['country_collection','referrer_collection','browser_collection','device_collection','os_collection'].map(k => [k, form.elements[k].checked]));
-  await mutate('privacy', { ...values, ...(state.reachAvailable ? { daily_reach_enabled: form.elements.daily_reach_enabled.checked } : {}), retention_days: Number(form.elements.retention_days.value), path_exclusions: form.elements.path_exclusions.value, bot_patterns: form.elements.bot_patterns.value, confirmation: form.elements.confirmation.checked ? 'yes' : '' }, 'Privacy settings saved.');
+  await mutate('privacy', { ...values, ...(state.reachAvailable ? { daily_reach_enabled: form.elements.daily_reach_enabled.checked } : {}), ...(state.pageReachAvailable ? { daily_page_reach_enabled: form.elements.daily_page_reach_enabled.checked } : {}), retention_days: Number(form.elements.retention_days.value), path_exclusions: form.elements.path_exclusions.value, bot_patterns: form.elements.bot_patterns.value, confirmation: form.elements.confirmation.checked ? 'yes' : '' }, 'Privacy settings saved.');
 });
 $('strict').addEventListener('click', async () => { if (confirm('Disable all optional measurement, including Daily Reach? Historical aggregates will be retained.')) await mutate('strict', {}, 'Strict Mode is active.'); });
 $('cleanup').addEventListener('click', async () => { try { const d = await request('cleanup', {}, 'POST', {}); $('maintenance-result').textContent = d.complete ? 'Expired data removed.' : 'A bounded cleanup batch ran; repeat to remove remaining expired data.'; } catch(e) { notice(e.message,true); } });

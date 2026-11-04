@@ -9,6 +9,7 @@ PHP 8.2 is in upstream security-only support through 2026-12-31. The first relea
 ```sh
 php tests/run.php
 php tests/daily-reach.php
+php tests/daily-page-reach.php
 php tests/wordpress.php
 php tests/sqlite-concurrency.php
 bash tests/integration.sh
@@ -27,6 +28,7 @@ Before handing off every code revision, inspect the complete diff and run the sa
 find public/barelytics -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/run.php
 php tests/daily-reach.php
+php tests/daily-page-reach.php
 php tests/wordpress.php
 php tests/sqlite-concurrency.php
 bash tests/integration.sh

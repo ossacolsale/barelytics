@@ -94,7 +94,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && !isset($_GET['api'])) {
             $retention = $_POST['retention_days'] ?? '';
             $botText = $_POST['bot_patterns'] ?? '';
             $exclusions = $_POST['path_exclusions'] ?? '';
-            $optionalEnabled = isset($_POST['daily_reach_enabled']);
+            $optionalEnabled = isset($_POST['daily_reach_enabled']) || isset($_POST['daily_page_reach_enabled']);
             foreach (PRIVACY_DEFAULTS as $key => $_) if (isset($_POST[$key])) $optionalEnabled = true;
             if (!in_array($retention, ['30', '90', '180', '365'], true)) $error = 'Select a supported retention period.';
             elseif (!is_string($botText) || strlen($botText) > 2000 || count(array_filter(explode("\n", $botText), static fn($line) => strlen(trim($line)) > 200)) > 0) $error = 'The custom bot pattern list is too long or contains a pattern over 200 characters.';
@@ -104,6 +104,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && !isset($_GET['api'])) {
                 $db->beginTransaction();
                 try {
                     \Barelytics\saveDailyReachSetting($db, isset($_POST['daily_reach_enabled']), ($_POST['confirm_extended'] ?? '') === 'yes');
+                    \Barelytics\saveDailyPageReachSetting($db, isset($_POST['daily_page_reach_enabled']), ($_POST['confirm_extended'] ?? '') === 'yes');
                     setSetting($db, 'retention_days', $retention);
                     foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, isset($_POST[$key]) ? '1' : '0');
                     setSetting($db, 'privacy_path_exclusions', trim($exclusions));
@@ -120,6 +121,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && !isset($_GET['api'])) {
             $db->beginTransaction();
             try {
                 \Barelytics\saveDailyReachSetting($db, false, true);
+                \Barelytics\saveDailyPageReachSetting($db, false, true);
                 foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, '0');
                 recordPrivacyConfiguration($db);
                 $db->commit();
@@ -130,7 +132,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && !isset($_GET['api'])) {
             }
         } elseif ($action === 'delete_all' && ($_POST['confirm_delete'] ?? '') === 'yes') {
             $db->exec('DELETE FROM pageviews_daily'); $db->exec('DELETE FROM referrers_daily'); if (tableExists($db, 'dimensions_daily')) $db->exec('DELETE FROM dimensions_daily'); if (tableExists($db, 'automation_daily')) $db->exec('DELETE FROM automation_daily');
-            if (tableExists($db, 'daily_reach')) $db->exec('DELETE FROM daily_reach'); $message = 'All aggregate statistics were deleted.';
+            if (tableExists($db, 'daily_reach')) $db->exec('DELETE FROM daily_reach');
+            if (tableExists($db, 'daily_page_reach')) $db->exec('DELETE FROM daily_page_reach');
+            setSetting($db, 'daily_page_reach_limited_days', '[]'); $message = 'All aggregate statistics were deleted.';
         } elseif ($action === 'cleanup') {
             $complete = cleanRetentionBatch($db);
             $message = $complete ? 'Expired statistics were removed.' : 'A bounded cleanup batch ran. Further expired records will be removed on a later request.';

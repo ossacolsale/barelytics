@@ -12,11 +12,13 @@ if (in_array($path, ['/barelytics/reach-prepare.php','/barelytics/reach-count.ph
     header('Cache-Control: no-store');
     if (str_contains($path, 'prepare')) {
         header('Content-Type: application/json');
-        echo json_encode(\Barelytics\dailyReachPrepare($db, $input['path'], $now));
-    } else http_response_code(\Barelytics\countDailyReach($db, $input['path'], $input['day'], $now));
+        echo json_encode(\Barelytics\dailyReachPrepare($db, $input['path'], $now, null, $input['version'] ?? 1));
+    } else http_response_code(($input['version'] ?? 1) === 2 ? \Barelytics\countReachV2($db, $input['path'], $input['day'], $input['global'], $input['page'], $now) : \Barelytics\countDailyReach($db, $input['path'], $input['day'], $now));
     return;
 }
+if ($path === '/barelytics/track.php' && isset($control['collector_delay_ms'])) usleep($control['collector_delay_ms'] * 1000);
 if (str_starts_with($path, '/barelytics/')) return false;
+if (!empty($control['block_connections'])) header("Content-Security-Policy: default-src 'self'; connect-src 'none'");
 header('Content-Type: text/html; charset=UTF-8');
 echo '<!doctype html><html><head><meta charset="utf-8"><title>Daily Reach test</title></head><body><h1>Daily Reach test</h1>';
-echo '<script defer src="/barelytics/track.js"' . (!empty($control['optin']) ? ' data-daily-reach="true"' : '') . '></script></body></html>';
+echo '<script defer src="/barelytics/track.js"' . (isset($control['reach_attribute']) ? ' data-daily-reach="' . htmlspecialchars($control['reach_attribute'], ENT_QUOTES) . '"' : '') . '></script></body></html>';

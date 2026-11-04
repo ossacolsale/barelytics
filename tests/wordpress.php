@@ -60,7 +60,7 @@ try {
     $_SERVER['REQUEST_URI'] = '/%61dmin/private';
     foreach ($actions['template_redirect'] as $callback) $callback();
     if ((int) \Barelytics\queryColumn($db, "SELECT SUM(requests) FROM automation_daily") !== 1) throw new RuntimeException('WordPress exclusion bypass.');
-    if (\Barelytics\effectivePrivacyConfig($db)['daily_reach_available'] || \Barelytics\effectivePrivacyConfig($db)['daily_reach_enabled']) throw new RuntimeException('WordPress must not advertise unsupported reach.');
+    if (\Barelytics\effectivePrivacyConfig($db)['daily_page_reach_available'] || \Barelytics\effectivePrivacyConfig($db)['daily_page_reach_enabled'] || \Barelytics\effectivePrivacyConfig($db)['daily_reach_available'] || \Barelytics\effectivePrivacyConfig($db)['daily_reach_enabled']) throw new RuntimeException('WordPress must not advertise unsupported reach.');
     ob_start();
     barelytics_wp_shared_admin_page();
     $administration = (string) ob_get_clean();

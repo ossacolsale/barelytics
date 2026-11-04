@@ -67,20 +67,23 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
                 adminApiReply(200, ['total' => $total, 'active_pages' => $active, 'daily_average' => round($total / $period, 1), 'timeline' => $timeline, 'top_pages' => $top, 'period' => $period, 'bucket' => $bucket]);
             }
             if ($resource === 'pages' || $resource === 'daily') {
-                $countSql = $resource === 'pages' ? 'SELECT COUNT(*) FROM (SELECT path FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY path)' : 'SELECT COUNT(*) FROM (SELECT day,path FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY day,path)';
-                $count = (int) queryColumn($db, $countSql, [':from' => $from, ':to' => $today]);
+                // Combine aggregate populations without multiplying reports by country rows.
+                $source = '(SELECT day,path,views,NULL AS reports FROM pageviews_daily UNION ALL SELECT day,path,0 AS views,reports FROM daily_page_reach)';
+                $group = $resource === 'pages' ? 'path' : 'day,path';
+                $params = [':from' => $from, ':to' => $today];
+                $count = (int) queryColumn($db, 'SELECT COUNT(*) FROM (SELECT ' . $group . ' FROM ' . $source . ' WHERE day BETWEEN :from AND :to GROUP BY ' . $group . ')', $params);
                 $page = min($page, max(1, (int) ceil($count / $perPage))); $offset = ($page - 1) * $perPage;
-                $rows = $resource === 'pages'
-                    ? queryRows($db, 'SELECT path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY path ORDER BY views DESC,path LIMIT :limit OFFSET :offset', [':from' => $from, ':to' => $today, ':limit' => $perPage, ':offset' => $offset])
-                    : queryRows($db, 'SELECT day,path,SUM(views) AS views FROM pageviews_daily WHERE day BETWEEN :from AND :to GROUP BY day,path ORDER BY day DESC,views DESC,path LIMIT :limit OFFSET :offset', [':from' => $from, ':to' => $today, ':limit' => $perPage, ':offset' => $offset]);
-                adminApiReply(200, ['rows' => $rows, 'total_rows' => $count, 'page' => $page, 'per_page' => $perPage, 'pages' => (int) ceil($count / $perPage), 'period' => $period]);
+                $rows = queryRows($db, 'SELECT ' . $group . ',SUM(views) AS views,SUM(reports) AS page_reach_reports FROM ' . $source . ' WHERE day BETWEEN :from AND :to GROUP BY ' . $group . ' ORDER BY ' . ($resource === 'daily' ? 'day DESC,' : '') . 'views DESC,path LIMIT :limit OFFSET :offset', $params + [':limit' => $perPage, ':offset' => $offset]);
+                adminApiReply(200, ['rows' => $rows, 'total_rows' => $count, 'page' => $page, 'per_page' => $perPage, 'pages' => (int) ceil($count / $perPage), 'period' => $period, 'page_reach' => dailyPageReachReportState($db, $from, $today)]);
             }
             if ($resource === 'page') {
                 $path = normalizePath((string) ($query['path'] ?? ''));
                 if ($path === null) adminApiReply(400, null, 'invalid_path', 'The page path is invalid.');
-                $total = (int) queryColumn($db, 'SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE path=:path AND day BETWEEN :from AND :to', [':path' => $path, ':from' => $from, ':to' => $today]);
-                $timeline = queryRows($db, 'SELECT ' . $bucketSql . ' AS period,SUM(views) AS views FROM pageviews_daily WHERE path=:path AND day BETWEEN :from AND :to GROUP BY period ORDER BY period', [':path' => $path, ':from' => $from, ':to' => $today]);
-                adminApiReply(200, ['path' => $path, 'total' => $total, 'timeline' => $timeline, 'period' => $period, 'bucket' => $bucket]);
+                $source = '(SELECT day,path,views,NULL AS reports FROM pageviews_daily UNION ALL SELECT day,path,0 AS views,reports FROM daily_page_reach)';
+                $params = [':path' => $path, ':from' => $from, ':to' => $today];
+                $totals = queryRows($db, 'SELECT COALESCE(SUM(views),0) AS views,SUM(reports) AS reports FROM ' . $source . ' WHERE path=:path AND day BETWEEN :from AND :to', $params)[0];
+                $timeline = queryRows($db, 'SELECT ' . $bucketSql . ' AS period,SUM(views) AS views,SUM(reports) AS page_reach_reports FROM ' . $source . ' WHERE path=:path AND day BETWEEN :from AND :to GROUP BY period ORDER BY period', $params);
+                adminApiReply(200, ['path' => $path, 'total' => (int) $totals['views'], 'page_reach_reports' => $totals['reports'], 'timeline' => $timeline, 'period' => $period, 'bucket' => $bucket, 'page_reach' => dailyPageReachReportState($db, $from, $today)]);
             }
             if ($resource === 'dimensions') {
                 $pagePath = array_key_exists('path', $query) && is_string($query['path']) ? normalizePath($query['path']) : null;
@@ -101,11 +104,11 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             if ($resource === 'system') adminApiReply(200, ['application' => 'Barelytics PHP', 'runtime' => PHP_VERSION, 'schema_version' => schemaVersion($db), 'current_schema_version' => CURRENT_SCHEMA_VERSION, 'migration_required' => schemaVersion($db) < CURRENT_SCHEMA_VERSION, 'capabilities' => ['cleanup' => true, 'delete_all' => true, 'logout' => true]]);
             if ($resource === 'audit') {
                 $selfTest = privacySelfTest($db);
-                adminApiReply(200, ['application' => 'Barelytics PHP', 'contract_version' => CONTRACT_VERSION, 'schema_version' => schemaVersion($db), 'profile' => $config['profile'], 'fingerprint' => privacyFingerprint($db), 'configuration' => $config, 'historical_dimensions' => $selfTest['schema']['historical_dimensions'], 'historical_reach' => $selfTest['schema']['historical_reach'], 'configuration_history' => queryRows($db, 'SELECT timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version FROM privacy_configuration_history ORDER BY timestamp DESC,rowid DESC LIMIT 100'), 'checks' => $selfTest['checks'], 'result' => $selfTest['result']]);
+                adminApiReply(200, ['application' => 'Barelytics PHP', 'contract_version' => CONTRACT_VERSION, 'schema_version' => schemaVersion($db), 'profile' => $config['profile'], 'fingerprint' => privacyFingerprint($db), 'configuration' => $config, 'historical_dimensions' => $selfTest['schema']['historical_dimensions'], 'historical_reach' => $selfTest['schema']['historical_reach'], 'historical_page_reach' => $selfTest['schema']['historical_page_reach'], 'configuration_history' => queryRows($db, 'SELECT timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version FROM privacy_configuration_history ORDER BY timestamp DESC,rowid DESC LIMIT 100'), 'checks' => $selfTest['checks'], 'result' => $selfTest['result']]);
             }
             if ($resource === 'integration') {
                 $base = requestBasePath();
-                adminApiReply(200, ['instructions' => 'Install Barelytics by FTP/SFTP and include the tracker on document pages.', 'javascript_snippet' => '<script defer src="' . $base . 'track.js"></script>', 'php_snippet' => "require_once rtrim(\$_SERVER['DOCUMENT_ROOT'], '/') . '" . $base . "src/Barelytics.php';\n\\Barelytics\\track();"]);
+                adminApiReply(200, ['instructions' => 'Install Barelytics by FTP/SFTP and choose one page-view integration per page. The normal browser tracker automatically participates in site-wide Daily Reach and separate Daily Page Reach when enabled in Privacy settings and authorized by the host/CMP permission callback, when required. No Daily Reach script attribute is required. Strict prevents analytics browser-storage access. Assess consent or exemption requirements before enabling Reach; storage restrictions and network failures can miss reports. Native PHP track() calls alone cannot measure browser reach; use the browser tracker instead to include it, without counting page views twice.', 'javascript_snippet' => '<script defer src="' . $base . 'track.js"></script>', 'php_snippet' => "require_once rtrim(\$_SERVER['DOCUMENT_ROOT'], '/') . '" . $base . "src/Barelytics.php';\n\\Barelytics\\track();"]);
             }
             adminApiReply(404, null, 'not_found', 'Administration resource not found.');
         }
@@ -120,13 +123,16 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             foreach ($exclusions as $line) if (strlen($line) > 200 || !str_starts_with($line, '/') || str_contains($line, '?') || str_contains($line, '#')) adminApiReply(400, null, 'invalid_settings', 'One or more settings are invalid.');
             foreach ($bots as $line) if (strlen($line) > 200) adminApiReply(400, null, 'invalid_settings', 'One or more settings are invalid.');
             if (array_key_exists('daily_reach_enabled', $input) && !is_bool($input['daily_reach_enabled'])) adminApiReply(400, null, 'invalid_settings', 'Daily Reach must be a boolean.');
+            if (array_key_exists('daily_page_reach_enabled', $input) && !is_bool($input['daily_page_reach_enabled'])) adminApiReply(400, null, 'invalid_settings', 'Daily Page Reach must be a boolean.');
+            $pageReachEnabled = ($input['daily_page_reach_enabled'] ?? false) === true;
             $reachEnabled = ($input['daily_reach_enabled'] ?? false) === true;
-            if ($reachEnabled && !dailyReachAvailable()) adminApiReply(400, null, 'unavailable', 'Daily Reach is unavailable in this adapter.');
-            $enabled = $reachEnabled; foreach (PRIVACY_DEFAULTS as $key => $_) if (($input[$key] ?? false) === true) $enabled = true;
+            if (($reachEnabled || $pageReachEnabled) && !dailyReachAvailable()) adminApiReply(400, null, 'unavailable', 'Daily Reach is unavailable in this adapter.');
+            $enabled = $reachEnabled || $pageReachEnabled; foreach (PRIVACY_DEFAULTS as $key => $_) if (($input[$key] ?? false) === true) $enabled = true;
             if ($enabled && ($input['confirmation'] ?? '') !== 'yes') adminApiReply(400, null, 'confirmation_required', 'Confirm optional Extended measurement.');
             $db->beginTransaction();
             try {
                 saveDailyReachSetting($db, $reachEnabled, ($input['confirmation'] ?? '') === 'yes');
+                saveDailyPageReachSetting($db, $pageReachEnabled, ($input['confirmation'] ?? '') === 'yes');
                 setSetting($db, 'retention_days', $retentionValue);
                 foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, ($input[$key] ?? false) === true ? '1' : '0');
                 setSetting($db, 'privacy_path_exclusions', implode("\n", $exclusions)); setSetting($db, 'bot_patterns', implode("\n", $bots));
@@ -135,7 +141,7 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             adminApiReply(200, effectivePrivacyConfig($db));
         }
         if ($resource === 'strict') {
-            $db->beginTransaction(); try { saveDailyReachSetting($db, false, true); foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, '0'); recordPrivacyConfiguration($db); $db->commit(); }
+            $db->beginTransaction(); try { saveDailyReachSetting($db, false, true); saveDailyPageReachSetting($db, false, true); foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, '0'); recordPrivacyConfiguration($db); $db->commit(); }
             catch (Throwable) { if ($db->inTransaction()) $db->rollBack(); adminApiReply(500, null, 'save_failed', 'Strict Mode could not be activated.'); }
             adminApiReply(200, effectivePrivacyConfig($db));
         }
@@ -144,7 +150,7 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             try { migrateDatabase($db); adminApiReply(200, ['schema_version' => schemaVersion($db), 'migration_required' => false]); }
             catch (Throwable) { if ($db->inTransaction()) $db->rollBack(); adminApiReply(500, null, 'migration_failed', 'Database migrations did not complete; existing aggregate data was preserved.'); }
         }
-        if ($resource === 'delete-all' && ($input['confirmation'] ?? '') === 'DELETE') { $db->beginTransaction(); try { $db->exec('DELETE FROM pageviews_daily'); $db->exec('DELETE FROM referrers_daily'); if (tableExists($db, 'dimensions_daily')) $db->exec('DELETE FROM dimensions_daily'); if (tableExists($db, 'automation_daily')) $db->exec('DELETE FROM automation_daily'); if (tableExists($db, 'daily_reach')) $db->exec('DELETE FROM daily_reach'); $db->commit(); } catch (Throwable) { if ($db->inTransaction()) $db->rollBack(); adminApiReply(500, null, 'delete_failed', 'Aggregate data could not be deleted.'); } adminApiReply(200, ['deleted' => true]); }
+        if ($resource === 'delete-all' && ($input['confirmation'] ?? '') === 'DELETE') { $db->beginTransaction(); try { $db->exec('DELETE FROM pageviews_daily'); $db->exec('DELETE FROM referrers_daily'); if (tableExists($db, 'dimensions_daily')) $db->exec('DELETE FROM dimensions_daily'); if (tableExists($db, 'automation_daily')) $db->exec('DELETE FROM automation_daily'); if (tableExists($db, 'daily_reach')) $db->exec('DELETE FROM daily_reach'); if (tableExists($db, 'daily_page_reach')) $db->exec('DELETE FROM daily_page_reach'); setSetting($db, 'daily_page_reach_limited_days', '[]'); $db->commit(); } catch (Throwable) { if ($db->inTransaction()) $db->rollBack(); adminApiReply(500, null, 'delete_failed', 'Aggregate data could not be deleted.'); } adminApiReply(200, ['deleted' => true]); }
         if ($resource === 'logout') { $_SESSION = []; session_destroy(); adminApiReply(200, ['authenticated' => false]); }
         adminApiReply(400, null, 'invalid_action', 'The administration action is not supported.');
     } catch (Throwable) { adminApiReply(500, null, 'internal_error', 'The administration request failed.'); }

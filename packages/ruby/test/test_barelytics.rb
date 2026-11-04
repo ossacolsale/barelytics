@@ -32,6 +32,8 @@ class BarelyticsTest < Minitest::Test
     Dir.mktmpdir do |dir|
       store = Barelytics::Store.new(data_directory: dir)
       assert_equal 'strict', store.configuration[:profile]
+      assert_equal false, store.configuration[:daily_page_reach_available]
+      assert_equal false, store.configuration[:daily_page_reach_enabled]
       assert_equal false, store.configuration[:country_collection]
       assert_equal 'PASS', store.audit[:result]
       assert store.track_page_view(path: '/article', user_agent: 'Mozilla/5.0 Chrome/120 Windows')

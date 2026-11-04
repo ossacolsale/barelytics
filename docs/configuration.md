@@ -21,13 +21,14 @@ Server environment variables are private deployment configuration. Do not place 
 | `reset.token` file | Missing | Optional FTP-installed SHA-256 recovery hash. It changes the existing admin password only, preserves statistics, and is deleted after use. It cannot create a second account. |
 | Reporting day | UTC | Fixed UTC calendar days; daily database keys use `YYYY-MM-DD` UTC. |
 
-The configuration toggles are stored in the private SQLite `settings` table. Admin password hashes are also stored there, never plaintext passwords. A fresh installation and upgrade default to Strict Mode: page views and separate finite automation counters are enabled. Optional dimensions remain off unless explicitly configured. PHP supports optional daily browser reach reports, disabled by default; WordPress and native adapters advertise it unavailable. No analytics cookie is issued. Enabling any optional dimension changes the effective profile to Extended. Visitor IDs, fingerprinting, query-string analytics, generic events and third-party analytics are unsupported. Strict does not access browser storage; the only Extended storage exception is the reach day marker. No external geolocation calls are made. Timezone is fixed to UTC in the current schema.
+The configuration toggles are stored in the private SQLite `settings` table. Admin password hashes are also stored there, never plaintext passwords. A fresh installation defaults to Strict Mode; upgrades preserve acknowledged settings and default new optional settings off: page views and separate finite automation counters are enabled. Optional dimensions remain off unless explicitly configured. PHP supports optional daily browser reach reports, disabled by default; WordPress and native adapters advertise it unavailable. No analytics cookie is issued. Enabling any optional dimension changes the effective profile to Extended. Visitor IDs, fingerprinting, query-string analytics, generic events and third-party analytics are unsupported. Strict does not access browser storage; the Extended storage exceptions are the site-wide Reach day marker and separately enabled bounded, expiring Page Reach hashes. No external geolocation calls are made. Timezone is fixed to UTC in the current schema.
 
 | Dimension | Default | Strict Mode | Data minimization |
 |---|---:|---|---|
 | Aggregate page views | On | Allowed | Normalized path and UTC day aggregate |
 | Classified automation | On | Allowed, contract revision 2 | Separate safe path/day/category/family request counters, no verified identity |
 | Daily browser reach reports | Off; PHP only | Disabled | One transactional IndexedDB day marker, no identity; [protocol and limits](../spec/daily-reach.md) |
+| Daily Page Reach reports | Off; standalone PHP only | Disabled | Up to 512 local expiring day/path hashes, never sent to PHP; only server day/path/report aggregates |
 | Country | Off | Disabled | Trusted server header; two-letter category only |
 | Referrer hostname | Off | Disabled | Hostname only; no path or query |
 | Browser | Off | Disabled | Coarse category; raw User-Agent discarded |
@@ -77,11 +78,17 @@ assessing terminal-storage consent/exemption and hosting obligations. This is
 independent of the five dimensions; reach alone makes the profile Extended.
 Set `BARELYTICS_DAILY_REACH_ALLOWED=0` for a deployment-level kill switch.
 
-Opt the shared tracker in explicitly:
+Install the normal browser tracker once. Enable or disable Daily Reach centrally
+in the PHP administration panel; no Daily Reach HTML attribute is required:
 
 ```html
-<script defer src="/barelytics/track.js" data-daily-reach="true"></script>
+<script defer src="/barelytics/track.js"></script>
 ```
+
+Existing pages with this unchanged script automatically participate when the
+server enables reach and any required host/CMP permission is granted. Existing
+`data-daily-reach="true"` remains compatible; explicit `data-daily-reach="false"`
+opts an individual page out without stopping its ordinary pageview.
 
 The tracker records ordinary page views. Initial reach support requires this
 browser collector: if the page already calls PHP `Barelytics\track()`, replace
@@ -91,11 +98,26 @@ advertise enabled reach before it prepares or touches IndexedDB. Both reach
 operations omit credentials and referrers, use POST bodies and no-store, and
 contain no individual identifier. Keep both PHP reach endpoint files beside
 `track.php`. Managed wrappers can set `data-reach-prepare` and `data-reach-count`
-to their equivalent same-origin routes. When opted in, each eligible page adds a prepare request; a transaction winner
-adds one count attempt. Strict adds neither. Configure proxies/CDNs to bypass
+to their equivalent same-origin routes. When enabled and permitted, each eligible
+page adds a prepare request; a transaction winner adds one count attempt. Strict adds neither. Configure proxies/CDNs to bypass
 caching for both POST endpoints. No server worker, cron or new service is needed. Use HTTPS in production; IndexedDB availability remains browser policy. With
 TLS termination at a trusted proxy, configure PHP’s HTTPS status correctly so
 Origin validation sees the public scheme.
+
+Ordinary pageviews now use one same-origin fetch with `keepalive: true` to read
+the authorization headers; the old `true` attribute was needed only to choose
+this transport instead of beacon. There is no additional configuration request
+in Strict and no IndexedDB access to discover settings. Without fetch, a single
+path-only beacon can still collect a pageview, without reach or browser referrer
+attribution. Fetch errors never trigger a second pageview; only an explicit
+protocol-v2 400 rejection permits the existing path-only fallback. Keepalive
+supports navigation/reload/closure but is subject to shared browser queue quotas.
+CSP must allow the collector through `connect-src`. Older browsers can have
+policy enforcement bugs; the pinned test Firefox 146 has a keepalive CSP bypass
+(see the [transport assessment](decisions/daily-reach.md)). CSP is not a Reach
+permission switch: use the central setting and host/CMP callback. Network
+interruption, browser restrictions and mobile suspension/termination can lose observations;
+there is no delivery or mobile-lifecycle equivalence guarantee with beacon.
 
 Where consent is required, define an asynchronous host/CMP callback **before**
 the deferred tracker, for example:
@@ -110,17 +132,18 @@ the deferred tracker, for example:
 
 Replace that illustrative host property with the actual CMP integration. Denial,
 absence of a required grant, exceptions and unavailable storage send no reach.
-Without a callback, explicit operator/script enablement authorizes the optional
+Without a callback, central operator enablement authorizes the optional
 measurement; that is not a consent exemption determination. If a grant arrives
 after this page's denied attempt, measurement resumes on a later page load; no
 retry loop is started.
 
 On withdrawal return false from the callback and, if required, explicitly call
 `await window.BarelyticsDailyReach?.clear()`. This deletes the analytics database
-without opening/reading it. Disable the server setting or return to Strict and
-remove the script attribute. Strict responses do not authorize reach preparation
-or storage even if the attribute remains. Previously authorized in-flight work
-can finish a local claim; count checks current server policy again and refuses
+without opening/reading it. Disable the server setting or return to Strict;
+no HTML change is needed.
+Strict responses do not authorize reach preparation or storage. The cleanup API
+remains available without automatically opening or reading IndexedDB. Previously
+authorized in-flight work can finish a local claim; count checks current server policy again and refuses
 new writes after disablement. A server cannot erase an inactive browser's state.
 An intact marker suppresses another attempt after same-day re-enablement.
 
@@ -132,3 +155,61 @@ per origin. Review the dashboard's limitations and [ADR](decisions/daily-reach.m
 never treat these totals as exact people, all unique visitors or a conversion
 ratio. WordPress/native adapters remain unavailable and must not enable the
 client attribute for reach; their ordinary analytics remain supported.
+
+## Daily Page Reach (standalone PHP)
+
+After backing up, apply schema migration 5 in the authenticated administration
+panel. Enable **Daily Page Reach — estimated distinct browsers per page and day**
+with Extended acknowledgement and the required consent/exemption assessment.
+No page HTML changes are needed when the normal browser tracker is installed.
+Site-wide Daily Reach and Page Reach have independent switches; either uses the
+existing CMP callback and both obey `BARELYTICS_DAILY_REACH_ALLOWED=0`. Explicit
+`data-daily-reach="false"` excludes the page from both. Strict stops automatic
+storage access and reach requests. PHP-only `track()` calls cannot deduplicate
+browsers; choose the normal browser tracker without also counting server-side.
+
+Pageviews count loads. Site-wide Reach counts first daily site reports. Page
+Reach counts first daily reports for each normalized page. For one browser,
+three loads of `/`, two of `/article-a` and one of `/contacts` can yield six
+pageviews, one site report and one page report on each of the three pages.
+Period Page Reach totals sum daily reports; neither they nor summed page totals
+are site-wide unique browsers/people. Do not infer conversion percentages.
+
+Before enabling, exclude sensitive or personal routes using **Private path
+exclusions**. The existing normalizer removes common long identifiers and rejects
+email/query/fragment/ambiguous paths, but cannot recognize every person's name
+or high-entropy short slug. No extra geographic/browser/referrer breakdown is
+attached to Page Reach. Missing permission, storage, Web Crypto/HTTPS or network
+support can miss observations. Clearing/eviction, private contexts, multiple
+profiles/devices and forged public requests can inflate them; shared browsers
+can combine people. No universal consent exemption is claimed.
+
+Only the browser hashes `UTC day + newline + server-normalized path` with
+SHA-256. IndexedDB stores one compact current-day record with at most 512 hashes,
+expiry timestamp and a closed-day flag; no raw paths or user identifiers. Hashes
+are never sent to PHP and can still be guessed from known paths. They expire no
+later than 24 hours after creation and within the prepared UTC period. Subsequent
+authorized storage access lazily purges them, including global-only access. A
+closed/inactive browser cannot physically erase data; Strict and denied
+permission do not open storage merely to clear it. Use
+`await window.BarelyticsDailyReach?.clear()` explicitly for consent withdrawal.
+Expiry keeps a day tombstone so a clock jump cannot reopen same-day counting.
+At the local 512-page limit, new page reports stop without discarding markers;
+pageviews and site-wide Reach continue.
+
+The PHP server stores only `(day, normalizedPath, reportCount)` historical
+aggregates. It accepts at most 4,096 new normalized page paths per UTC day;
+existing page aggregates can continue incrementing. The dashboard labels periods
+including capped days as **Partial data**. This does not correct other sources
+of missing observations. One existing prepare request serves both metrics; a
+single combined count updates both in one transaction when the local decisions
+win. Later new-page reports update only Page Reach. Ambiguous failures never
+retry. Legacy global-only tracker requests retain version-1 semantics.
+
+Pages, Daily statistics and Page detail show both metrics, including retained
+reports while collection is disabled. **No observed reports** means unavailable
+observations for that selection; no historical values are backfilled. Genuine
+stored zeroes remain zero. Historical server aggregates follow the configured
+30/90/180/365-day retention, not the 24-hour browser expiry. Cleanup is bounded,
+resumes on later web requests without cron, and delete-all includes both reach
+metrics. SQLite reuses freed pages; deletion does not promise a smaller file.

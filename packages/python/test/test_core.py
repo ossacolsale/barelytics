@@ -151,6 +151,8 @@ class BarelyticsTests(unittest.TestCase):
             analytics.return_to_strict_mode()
             self.assertEqual(analytics.audit()["historical_dimensions"], ["country", "referrer", "browser", "device", "os"])
             self.assertFalse(analytics._config()["daily_reach_available"])
+            self.assertFalse(analytics._config()["daily_page_reach_available"])
+            self.assertFalse(analytics._config()["daily_page_reach_enabled"])
             analytics.close()
 
     def test_legacy_upgrade_audit_schema_and_future_guard(self):

@@ -175,7 +175,7 @@ class Barelytics:
         config["retention_days"] = int(raw_retention) if raw_retention.isdigit() and int(raw_retention) in _VALID_RETENTION else 180
         config["path_exclusions"] = sorted(x for x in self._get("path_exclusions", "\n".join(DEFAULT_EXCLUSIONS)).splitlines() if x.startswith("/") and len(x) <= 200)
         config["bot_patterns"] = [x for x in self._get("bot_patterns", "").splitlines() if 0 < len(x) <= 200]
-        config.update(automation_collection=True, daily_reach_available=False, reporting_day="UTC")
+        config.update(automation_collection=True, daily_reach_available=False, daily_page_reach_available=False, daily_page_reach_enabled=False, reporting_day="UTC")
         config["profile"] = "extended" if any(config[key] for key in DIMENSIONS) else "strict"
         return config
 
