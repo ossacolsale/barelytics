@@ -8,6 +8,7 @@ These documents define intended, runtime-neutral behavior. Consult the contract 
 - [Path normalization](path-normalization.md): accepted paths, identifier removal, and private-path exclusions.
 - [Bot filtering](bot-filtering.md): finite automation classification, declared identities and observation limits.
 - [Storage model](storage-model.md): SQLite aggregates, schema, writes, and migration expectations.
+- [Daily browser reach reports](daily-reach.md): optional PHP client gate, UTC transport and accepted limitations.
 - [Retention](retention.md): supported periods and bounded cleanup behavior.
 - [Configuration](configuration.md): shared defaults and opt-in settings.
 

@@ -1,7 +1,7 @@
 const config = window.BARELYTICS_ADMIN_CONFIG || {};
 const apiBase = new URL(config.apiBase || 'api/', window.location.href);
 const $ = (id) => document.getElementById(id);
-const state = { csrf: '', retention: 180, pagesPage: 1, dailyPage: 1, automationPage: 1, pageRequest: 0, perPage: 50 };
+const state = { reachAvailable: false, csrf: '', retention: 180, pagesPage: 1, dailyPage: 1, automationPage: 1, pageRequest: 0, perPage: 50 };
 
 function text(value) { return document.createTextNode(String(value ?? '')); }
 function table(container, headers, rows) {
@@ -34,6 +34,14 @@ async function loadDashboard() {
   $('metrics').replaceChildren(metric('Page views', Number(d.total).toLocaleString(), `${period()} day period`), metric('Pages viewed', d.active_pages, 'distinct paths'), metric('Daily average', d.daily_average, 'views per day'));
   table($('timeline'), ['Period', 'Views'], (d.timeline || []).map(r => [r.period, r.views]));
   table($('top-pages'), ['Page', 'Views'], (d.top_pages || []).map(r => [link(r.path), r.views]));
+}
+async function loadReach() {
+  $('reach-metrics').replaceChildren(); $('reach-timeline').replaceChildren();
+  if (!state.reachAvailable) { $('reach-state').textContent = 'Daily browser reach reports are unavailable in this adapter.'; return; }
+  const d = await request('reach', { period: period() });
+  $('reach-state').textContent = d.enabled ? 'Optional Extended measurement is enabled. Reporting days use UTC.' : 'Collection is disabled. Historical aggregate reports remain subject to retention or deletion.';
+  $('reach-metrics').replaceChildren(metric('Daily browser reach reports', Number(d.total).toLocaleString(), 'received reports; UTC reporting contract 1'));
+  table($('reach-timeline'), ['Day (UTC)', 'Reports'], (d.timeline || []).map(r => [r.day, r.reports]));
 }
 async function loadAutomation(page = state.automationPage) {
   const d = await request('automation', { ...query(), page, per_page: state.perPage });
@@ -86,18 +94,25 @@ async function loadDimensions() {
   await dimensionBreakdown($('dimension-result'), $('dimension').value);
 }
 async function loadPrivacy() {
-  const d = await request('privacy'); state.retention = d.retention_days;
+  const d = await request('privacy');
+  state.reachAvailable = d.daily_reach_available === true;
+  const reach = $('privacy-form').elements.daily_reach_enabled;
+  reach.checked = d.daily_reach_enabled === true; reach.disabled = !state.reachAvailable;
+  $('reach-capability').textContent = state.reachAvailable
+    ? 'Requires explicit acknowledgement and data-daily-reach="true" on the tracker. Use the host/CMP permission callback when required.'
+    : 'Unavailable in this adapter; it cannot be enabled here.';
+  state.retention = d.retention_days;
   for (const option of $('period').options) option.disabled = Number(option.value) > state.retention;
   $('period').value = String(Math.min(Number($('period').value), state.retention));
   const form = $('privacy-form'); form.elements.retention_days.value = String(d.retention_days);
   for (const key of ['country_collection','referrer_collection','browser_collection','device_collection','os_collection']) form.elements[key].checked = Boolean(d[key]);
   form.elements.path_exclusions.value = (d.path_exclusions || []).join('\n'); form.elements.bot_patterns.value = (d.bot_patterns || []).join('\n');
-  $('privacy-result').textContent = `Effective profile: ${String(d.profile).toUpperCase()}. Optional dimensions are ${d.profile === 'strict' ? 'disabled' : 'enabled'}.`;
+  $('privacy-result').textContent = `Effective profile: ${String(d.profile).toUpperCase()}. Optional measurement is ${d.profile === 'strict' ? 'disabled' : 'enabled'}.`;
 }
 async function loadSystem() { const d = await request('system'); $('system-result').textContent = JSON.stringify(d, null, 2); let button = $('system-migrate'); if (d.migration_required) { if (!button) { button = document.createElement('button'); button.id = 'system-migrate'; button.textContent = 'Apply database migrations'; button.addEventListener('click', async () => { try { await request('migrate', {}, 'POST', {}); notice('Database migrations applied.'); await refresh(); } catch (e) { notice(e.message, true); } }); $('system-result').after(button); } } else button?.remove(); }
 async function loadAudit() { $('audit-result').textContent = JSON.stringify(await request('audit'), null, 2); }
 async function loadIntegration() { const d = await request('integration'); const p = document.createElement('p'); p.textContent = d.instructions || 'See the runtime integration guide for setup instructions.'; $('integration-result').replaceChildren(p); if (d.javascript_snippet) { const code = document.createElement('pre'); code.textContent = d.javascript_snippet; $('integration-result').append(code); } }
-async function refresh() { try { notice(''); await loadPrivacy(); await Promise.all([loadDimensions(), loadAutomation(), ...($('page-path').value ? [loadPage($('page-path').value)] : []), loadDashboard(), loadPages('pages', state.pagesPage), loadPages('daily', state.dailyPage), loadSystem(), loadAudit(), loadIntegration()]); } catch (e) { notice(e.message, true); } }
+async function refresh() { try { notice(''); await loadPrivacy(); await Promise.all([loadReach(), loadDimensions(), loadAutomation(), ...($('page-path').value ? [loadPage($('page-path').value)] : []), loadDashboard(), loadPages('pages', state.pagesPage), loadPages('daily', state.dailyPage), loadSystem(), loadAudit(), loadIntegration()]); } catch (e) { notice(e.message, true); } }
 async function initialize() {
   try {
     const session = await request('session');
@@ -114,8 +129,8 @@ $('period').addEventListener('change', refresh);
 $('bucket').addEventListener('change', refresh);
 $('page-form').addEventListener('submit', async e => { e.preventDefault(); try { await loadPage($('page-path').value); } catch (x) { notice(x.message, true); } });
 $('dimension-form').addEventListener('submit', async e => { e.preventDefault(); try { await loadDimensions(); } catch (x) { notice(x.message, true); } });
-$('privacy-form').addEventListener('submit', async e => { e.preventDefault(); const form = e.currentTarget; const values = Object.fromEntries(['country_collection','referrer_collection','browser_collection','device_collection','os_collection'].map(k => [k, form.elements[k].checked])); try { await request('privacy', {}, 'POST', { ...values, retention_days: Number(form.elements.retention_days.value), path_exclusions: form.elements.path_exclusions.value, bot_patterns: form.elements.bot_patterns.value, confirmation: form.elements.confirmation.checked ? 'yes' : '' }); notice('Privacy settings saved.'); await refresh(); } catch (x) { notice(x.message, true); } });
-$('strict').addEventListener('click', async () => { if (!confirm('Disable all optional dimensions? Historical aggregates will be retained.')) return; try { await request('strict', {}, 'POST', {}); notice('Strict Mode is active.'); await refresh(); } catch (x) { notice(x.message, true); } });
+$('privacy-form').addEventListener('submit', async e => { e.preventDefault(); const form = e.currentTarget; const values = Object.fromEntries(['country_collection','referrer_collection','browser_collection','device_collection','os_collection'].map(k => [k, form.elements[k].checked])); try { await request('privacy', {}, 'POST', { ...values, ...(state.reachAvailable ? { daily_reach_enabled: form.elements.daily_reach_enabled.checked } : {}), retention_days: Number(form.elements.retention_days.value), path_exclusions: form.elements.path_exclusions.value, bot_patterns: form.elements.bot_patterns.value, confirmation: form.elements.confirmation.checked ? 'yes' : '' }); notice('Privacy settings saved.'); await refresh(); } catch (x) { notice(x.message, true); } });
+$('strict').addEventListener('click', async () => { if (!confirm('Disable all optional measurement, including Daily Reach? Historical aggregates will be retained.')) return; try { await request('strict', {}, 'POST', {}); notice('Strict Mode is active.'); await refresh(); } catch (x) { notice(x.message, true); } });
 $('cleanup').addEventListener('click', async () => { try { const d = await request('cleanup', {}, 'POST', {}); $('maintenance-result').textContent = d.complete ? 'Expired data removed.' : 'A bounded cleanup batch ran; repeat to remove remaining expired data.'; } catch (x) { notice(x.message, true); } });
 $('delete-all').addEventListener('click', async () => { if (!confirm('Permanently delete all aggregate statistics? This cannot be undone.')) return; try { await request('delete-all', {}, 'POST', { confirmation: 'DELETE' }); notice('All aggregate statistics deleted.'); await refresh(); } catch (x) { notice(x.message, true); } });
 for (const button of document.querySelectorAll('[data-page]')) button.addEventListener('click', async () => { const name = button.dataset.page, key = `${name}Page`, next = Math.max(1, state[key] + Number(button.dataset.step)); try { if (name === 'automation') await loadAutomation(next); else await loadPages(name, next); } catch (x) { notice(x.message, true); } });

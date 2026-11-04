@@ -8,6 +8,7 @@ Every request except the HTML and static asset routes must pass the host authori
 | --- | --- |
 | `GET /api/session` | Authenticated state, CSRF token where needed, capabilities, retention |
 | `GET /api/dashboard?period=&bucket=` | Totals, active paths, daily average, timeline, top paths |
+| `GET /api/reach?period=` | PHP-only site-wide received reach total and UTC daily timeline; current enablement separate from historical rows |
 | `GET /api/automation?period=&bucket=&page=&per_page=` | Observed automation total, timeline, finite categories/families and paginated path totals; identities are unverified |
 | `GET /api/pages?period=&page=&per_page=` | Paginated page totals |
 | `GET /api/daily?period=&page=&per_page=` | Paginated UTC day × path totals |
@@ -35,3 +36,8 @@ data, not a direct visit or a zero-valued inferred dimension. Country `XX` and
 category `Unknown` mean unavailable/unknown (legacy `XX` can also reflect Strict
 collection). No historical dimensions are backfilled. Audits expose
 `historical_dimensions` separately from current settings.
+
+PHP privacy saves accept boolean `daily_reach_enabled`, independently acknowledged
+as Extended; `POST /api/strict` disables it and delete-all includes its aggregates.
+The UI must check `daily_reach_available` before offering enablement or calling
+`reach`; unsupported adapters keep that capability false.

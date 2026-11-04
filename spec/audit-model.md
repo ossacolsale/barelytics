@@ -7,4 +7,7 @@ retained aggregate rows. Reports list disabled dimensions with historical rows
 under `historical_dimensions`; these rows alone do not fail a Strict audit.
 Unexpected tables/columns remain structural failures. The audit cannot prove
 how historical data were collected, verify UA declarations, or inspect hosting
-logs/CDN configuration. Daily Reach availability is false after its design gate.
+logs/CDN configuration. PHP optionally permits an IndexedDB day marker only when Daily Reach is enabled
+in Extended; its audit includes enablement, current storage use and
+`historical_reach` separately. Strict has no reach storage access; retained reach
+rows alone do not fail its audit. Other adapters report reach unavailable.

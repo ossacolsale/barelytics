@@ -48,3 +48,5 @@ packages/ruby/*.gem
 Thumbs.db
 .idea/
 .vscode/
+
+/tests/browser/node_modules/

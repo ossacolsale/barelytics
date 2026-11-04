@@ -42,3 +42,9 @@ their existing in-process API and minimize it to a hostname. These APIs must not
 be passed the beacon's Referer header. Old browser collectors did not reliably
 attribute navigation sources; retained historical hostname rows cannot be
 corrected retrospectively and are not evidence of a known acquisition source.
+
+The optional PHP reach capability uses the separate operations in
+[daily-reach.md](daily-reach.md). Ordinary collector payloads/statuses remain
+unchanged; eligible enabled PHP responses additionally advertise
+`Barelytics-Reach-Enabled: 1` and `Barelytics-Reach-Path` (percent-encoded safe
+normalized path) for explicitly opted-in clients.

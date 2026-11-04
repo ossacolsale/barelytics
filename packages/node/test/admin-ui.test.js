@@ -18,7 +18,7 @@ test('shared admin UI covers the dashboard sections and can run without external
 });
 
 test('shared admin UI confirms strict mode and destructive deletion and renders disabled dimensions', () => {
-  assert.match(app, /confirm\('Disable all optional dimensions/);
+  assert.match(app, /confirm\('Disable all optional measurement/);
   assert.match(app, /confirm\('Permanently delete all aggregate statistics/);
   assert.match(app, /collection is disabled in the current privacy configuration/);
   assert.match(app, /textContent/);

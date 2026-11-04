@@ -91,17 +91,13 @@ deliberately omitted: hostnames suffice without an additional route disclosure.
 After a server Strict reset, an explicit v2 rejection permits one path-only
 retry; lost responses do not trigger duplicate-prone retries.
 
-**D — architecture and feasibility complete; production feature rejected.**
-The [ADR](decisions/daily-reach.md) compares count-and-set and acknowledgement,
-checks official guidance and publication status, and defines prospective day,
-cookie, consent and rollback requirements. Five offline experiments verify
-shared marker values, sequential/day rollover, rejection bias, concurrent/lost
-responses, acknowledgement costs and Europe/Rome 23/25-hour days. The technical
-gate fails. No cookie, reach table, enabling setting or activation UI exists;
-all runtimes report `daily_reach_available=false`. The reach implementation
-scenarios in the request are therefore inapplicable to this revision, rather
-than untested production capabilities. There is no pending operator approval
-that can enable them.
+**D — cookie approach rejected; client-gated PHP alternative complete.** The
+[ADR](decisions/daily-reach.md) retains the cookie analysis and verifies a
+separate, limited metric: daily browser reach reports. The shared tracker claims
+one IndexedDB day record transactionally before sending once, without retries
+or identifiers. PHP is the initial available backend, off by default. Other
+adapters remain unavailable rather than exposing unverified transport support.
+The current implementation/evidence is recorded below.
 
 **Migration and rollback.** Schema 3 additively creates `automation_daily` and
 records the version atomically. Synthetic v2 upgrades preserve totals, retention
@@ -157,8 +153,10 @@ Affected local Markdown links and `git diff --check` passed.
 
 The complete CI version matrix and a real WordPress installation were not run
 locally. WordPress verification uses actual plugin callbacks under a minimal
-host harness. The browser host was unavailable, so there is no visual or real
-browser acceptance claim; tracker behavior was exercised in a Node VM.
+host harness. The original A–C browser host was unavailable and tracker behavior was exercised
+in a Node VM. The subsequent PHP reach work additionally exercised real Chrome
+and Firefox, including the shared dashboard, as described below; this is not a
+claim of full visual coverage for every integration.
 Native audit reports inspect configuration and schema but do not run PHP's
 on-demand storage-write self-test: this existing gap against the broad
 [`spec/audit-model.md`](../spec/audit-model.md) requirement remains explicit;
@@ -169,3 +167,58 @@ unbounded; operators must set infrastructure quotas/limits. UA declarations can
 be forged, JavaScript misses non-executing crawlers, and no visitor/session or
 accurate distinct-browser inference is made. No external service or Dependabot
 PR #1 was modified; no commit, push, publication or deployment was performed.
+
+## Client-gated reach implementation and verification
+
+PHP contract revision 3/schema 4 adds only `daily_reach(day,reports)` and a
+separate default-off setting. An acknowledged enablement alone makes the
+profile Extended; Strict reset disables it. Current IndexedDB use and retained
+`historical_reach` are distinguished by audit. Existing UTC views, dimensions,
+automation, credentials and settings survive migration. PHP and WordPress core
+migrate to schema 4; WordPress keeps reach unavailable and does not package the
+public reach endpoints. Native stores retain schema 3/capability false; do not
+share those databases with PHP schema 4. Restore matching code/database backups
+for rollback; never drop the table to bypass version guards.
+
+Affected implementation: `src/DailyReach.php`, the two standalone PHP endpoints,
+`track.php` authorization/path response headers, shared `track.js`, settings,
+audit, retention, deletion and the shared administration dashboard. Prepare
+receives an already normalized safe path, returns authoritative UTC metadata and
+never increments reach. Count rechecks current policy/path/automation and the
+120-second previous-day grace under a bounded SQLite write transaction. It
+stores only the explicitly validated day's site-wide report count. Transport
+omits credentials/referrers and never retries. Ordinary collection is independent.
+
+`tests/browser/reach.mjs` passed 22 real-browser scenarios in each of Chrome
+156.0.8078.47 and Firefox 146.0.1. It covers single/sequential visits, 2/10
+concurrent tabs, popup windows, normal restart, private contexts, storage errors,
+abort/missing transactions, permission denial/withdrawal, storage deletion,
+request/response loss, current disablement, UTC rollover and boundary grace.
+It also signs in to the actual PHP administration UI, verifies the new metric,
+returns to Strict and checks retained history. The reach panel screenshot was
+visually inspected using synthetic data. A local header override is used for
+bot simulation because Firefox's fetch kept its own UA despite a context override.
+
+Executed commands (repository root unless stated):
+
+- `REACH_BROWSERS=chromium REACH_CHROME_EXECUTABLE=/opt/google/chrome/chrome node tests/browser/reach.mjs`
+- `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 PLAYWRIGHT_BROWSERS_PATH=/tmp/barelytics-playwright REACH_BROWSERS=firefox node tests/browser/reach.mjs`
+- `php tests/run.php` (320), `php tests/daily-reach.php`, `php tests/wordpress.php`, `php tests/sqlite-concurrency.php` (four writers, 200 exact reach increments plus bounded busy-lock failure/recovery), `bash tests/integration.sh` (real endpoints, acknowledgement/CSRF, Origin, stale keys, reset, audit, deletion and unavailable database).
+- PHP lint on core, WordPress, scripts and tests; Node syntax checks on tracker, dashboard and browser harness.
+- `python3 -m unittest discover -s scripts -p 'test_*.py' -v` (20 tests, including nine reach design tests and WordPress packaging exclusions).
+- `npm test --prefix packages/node` (17); `PYTHONPATH=packages/python python3 -m unittest discover -s packages/python/test -v` (8); `ruby -Ilib test/test_barelytics.rb` in `packages/ruby` (7, 307 assertions); .NET contract harness with writable temporary CLI home and JDK 21 offline Maven test (7), using the commands above. Native capability remains unavailable.
+- `sh scripts/stage-admin-ui.sh`, `php scripts/build-wordpress-plugin.php`, local PHP/WordPress archive validation, affected Markdown links and `git diff --check`.
+
+WebKit 26.0 installation succeeded but launch was blocked by missing host
+libraries; no WebKit results are claimed. Firefox used Playwright's Ubuntu 24.04
+fallback on the Ubuntu 26.04 host. CI now defines browser-engine tests on Ubuntu
+24.04 with dependencies installed; the remote CI job and full version matrix
+remain unexecuted locally. See [browser reproduction](../tests/browser/README.md).
+There is no concrete blocker for the tested PHP capability. Storage resets,
+forged requests and duplicated delivery can inflate reports; rejected storage,
+closing a page after local commit and network failures can lose them. These
+accepted limitations do not justify exact-visitor, lower-bound or conversion
+claims. Operators must assess GDPR infrastructure and ePrivacy storage/consent
+conditions before enabling; no legal certification/exemption is asserted. No
+production data, personal browser profile, commit, push or deployment was used
+for this implementation.

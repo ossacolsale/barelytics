@@ -8,6 +8,7 @@ PHP 8.2 is in upstream security-only support through 2026-12-31. The first relea
 
 ```sh
 php tests/run.php
+php tests/daily-reach.php
 php tests/wordpress.php
 php tests/sqlite-concurrency.php
 bash tests/integration.sh
@@ -25,6 +26,7 @@ Before handing off every code revision, inspect the complete diff and run the sa
 ```sh
 find public/barelytics -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/run.php
+php tests/daily-reach.php
 php tests/wordpress.php
 php tests/sqlite-concurrency.php
 bash tests/integration.sh
@@ -45,3 +47,11 @@ README and run `python3 -m unittest discover -s scripts -p 'test_*.py' -v`.
 Automation rule changes require `python3 scripts/generate-automation.py`; verify
 parity with `--check`. The process-concurrency check requires PDO SQLite and
 `pcntl`; report its explicit unavailable message if the environment lacks them.
+
+Reach changes also require the real-browser harness: `npm ci --prefix tests/browser`,
+then `npx playwright install --with-deps chromium firefox webkit` from that
+folder, and `npm test --prefix tests/browser`. `REACH_BROWSERS` can select installed
+engines; `REACH_CHROME_EXECUTABLE` selects a local Chrome executable. Report
+actual engines and missing dependencies. The harness creates synthetic private
+profiles/data under the temporary directory and never uses a personal profile.
+No browser/testing dependency is shipped in a runtime package.

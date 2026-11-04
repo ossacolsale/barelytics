@@ -32,7 +32,11 @@ try {
     $db = connectDatabase();
     if ($payload['version'] === 2 && !\Barelytics\effectivePrivacyConfig($db)['referrer_collection']) { http_response_code(400); exit; }
     $referrer = $payload['referrer_host'] !== null ? 'https://' . $payload['referrer_host'] : '';
-    countRequest($db, $payload['path'], $referrer, true);
+    $counted = countRequest($db, $payload['path'], $referrer, true);
+    if ($counted && \Barelytics\dailyReachPrepare($db, $payload['path'])['enabled']) {
+        header('Barelytics-Reach-Enabled: 1');
+        header('Barelytics-Reach-Path: ' . rawurlencode($payload['path']));
+    }
 } catch (Throwable $ignored) {
     // Tracking must fail silently to the visitor and never expose internal errors.
 }

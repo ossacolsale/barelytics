@@ -21,13 +21,13 @@ Server environment variables are private deployment configuration. Do not place 
 | `reset.token` file | Missing | Optional FTP-installed SHA-256 recovery hash. It changes the existing admin password only, preserves statistics, and is deleted after use. It cannot create a second account. |
 | Reporting day | UTC | Fixed UTC calendar days; daily database keys use `YYYY-MM-DD` UTC. |
 
-The configuration toggles are stored in the private SQLite `settings` table. Admin password hashes are also stored there, never plaintext passwords. A fresh installation and upgrade default to Strict Mode: page views and separate finite automation counters are enabled. Optional dimensions remain off unless explicitly configured. Daily Reach is unavailable and never issues a cookie. Enabling any optional dimension changes the effective profile to Extended. Visitor IDs, fingerprinting, query-string analytics, generic events, browser storage, and third-party analytics are unsupported. No external geolocation calls are made. Timezone is fixed to UTC in the current schema.
+The configuration toggles are stored in the private SQLite `settings` table. Admin password hashes are also stored there, never plaintext passwords. A fresh installation and upgrade default to Strict Mode: page views and separate finite automation counters are enabled. Optional dimensions remain off unless explicitly configured. PHP supports optional daily browser reach reports, disabled by default; WordPress and native adapters advertise it unavailable. No analytics cookie is issued. Enabling any optional dimension changes the effective profile to Extended. Visitor IDs, fingerprinting, query-string analytics, generic events and third-party analytics are unsupported. Strict does not access browser storage; the only Extended storage exception is the reach day marker. No external geolocation calls are made. Timezone is fixed to UTC in the current schema.
 
 | Dimension | Default | Strict Mode | Data minimization |
 |---|---:|---|---|
 | Aggregate page views | On | Allowed | Normalized path and UTC day aggregate |
 | Classified automation | On | Allowed, contract revision 2 | Separate safe path/day/category/family request counters, no verified identity |
-| Daily Reach | Unavailable | Disabled | See the [failed design gate](decisions/daily-reach.md) |
+| Daily browser reach reports | Off; PHP only | Disabled | One transactional IndexedDB day marker, no identity; [protocol and limits](../spec/daily-reach.md) |
 | Country | Off | Disabled | Trusted server header; two-letter category only |
 | Referrer hostname | Off | Disabled | Hostname only; no path or query |
 | Browser | Off | Disabled | Coarse category; raw User-Agent discarded |
@@ -68,3 +68,67 @@ collection is off now, not that historical rows were deleted. Empty enabled
 reports mean no observed data. `XX`/`Unknown` mean unavailable, not a fabricated
 country, browser or direct source. Legacy browser-beacon referrer rows cannot be
 repaired retrospectively.
+
+## Daily browser reach reports (PHP)
+
+Back up and apply PHP schema migration 4 through the authenticated dashboard.
+Enable **Daily browser reach reports** with the Extended acknowledgement, after
+assessing terminal-storage consent/exemption and hosting obligations. This is
+independent of the five dimensions; reach alone makes the profile Extended.
+Set `BARELYTICS_DAILY_REACH_ALLOWED=0` for a deployment-level kill switch.
+
+Opt the shared tracker in explicitly:
+
+```html
+<script defer src="/barelytics/track.js" data-daily-reach="true"></script>
+```
+
+The tracker records ordinary page views. Initial reach support requires this
+browser collector: if the page already calls PHP `Barelytics\track()`, replace
+that server-page integration rather than counting the same page twice. There
+is no reach-only server-page or WordPress adapter in this revision. Its normal response must
+advertise enabled reach before it prepares or touches IndexedDB. Both reach
+operations omit credentials and referrers, use POST bodies and no-store, and
+contain no individual identifier. Keep both PHP reach endpoint files beside
+`track.php`. Managed wrappers can set `data-reach-prepare` and `data-reach-count`
+to their equivalent same-origin routes. When opted in, each eligible page adds a prepare request; a transaction winner
+adds one count attempt. Strict adds neither. Configure proxies/CDNs to bypass
+caching for both POST endpoints. No server worker, cron or new service is needed. Use HTTPS in production; IndexedDB availability remains browser policy. With
+TLS termination at a trusted proxy, configure PHP’s HTTPS status correctly so
+Origin validation sees the public scheme.
+
+Where consent is required, define an asynchronous host/CMP callback **before**
+the deferred tracker, for example:
+
+```html
+<script>
+  window.BARELYTICS_REACH_PERMISSION = async () => {
+    return window.myConsentManager?.audienceMeasurementAllowed === true;
+  };
+</script>
+```
+
+Replace that illustrative host property with the actual CMP integration. Denial,
+absence of a required grant, exceptions and unavailable storage send no reach.
+Without a callback, explicit operator/script enablement authorizes the optional
+measurement; that is not a consent exemption determination. If a grant arrives
+after this page's denied attempt, measurement resumes on a later page load; no
+retry loop is started.
+
+On withdrawal return false from the callback and, if required, explicitly call
+`await window.BarelyticsDailyReach?.clear()`. This deletes the analytics database
+without opening/reading it. Disable the server setting or return to Strict and
+remove the script attribute. Strict responses do not authorize reach preparation
+or storage even if the attribute remains. Previously authorized in-flight work
+can finish a local claim; count checks current server policy again and refuses
+new writes after disablement. A server cannot erase an inactive browser's state.
+An intact marker suppresses another attempt after same-day re-enablement.
+
+IndexedDB has no automatic midnight expiry. One origin-wide fixed-key `{day}`
+record is overwritten by a later authoritative UTC day; no pages or histories
+are stored locally. Manual clearing, eviction, private contexts or separate
+profiles can create additional reports. Initial support assumes one collector
+per origin. Review the dashboard's limitations and [ADR](decisions/daily-reach.md);
+never treat these totals as exact people, all unique visitors or a conversion
+ratio. WordPress/native adapters remain unavailable and must not enable the
+client attribute for reach; their ordinary analytics remain supported.

@@ -54,6 +54,9 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
         if ($method === 'GET') {
             if ($resource === 'session') adminApiReply(200, ['authenticated' => true, 'csrf' => $csrf, 'retention_days' => $retention, 'capabilities' => ['logout' => true, 'delete_all' => true, 'account_url' => 'account.php']]);
             if ($resource === 'privacy') adminApiReply(200, $config);
+            if ($resource === 'reach') adminApiReply(200, ['available' => dailyReachAvailable(), 'enabled' => $config['daily_reach_enabled'], 'reporting_contract_version' => REACH_REPORTING_VERSION, 'period' => $period,
+                'total' => (int) queryColumn($db, 'SELECT COALESCE(SUM(reports),0) FROM daily_reach WHERE day BETWEEN :from AND :to', [':from' => $from, ':to' => $today]),
+                'timeline' => queryRows($db, 'SELECT day,reports FROM daily_reach WHERE day BETWEEN :from AND :to ORDER BY day', [':from' => $from, ':to' => $today])]);
             if ($resource === 'automation') adminApiReply(200, automationReport($db, $from, $today, $bucketSql, $page, $perPage));
             if ($resource === 'dashboard') {
                 $total = (int) queryColumn($db, 'SELECT COALESCE(SUM(views),0) FROM pageviews_daily WHERE day BETWEEN :from AND :to', [':from' => $from, ':to' => $today]);
@@ -95,7 +98,7 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             if ($resource === 'system') adminApiReply(200, ['application' => 'Barelytics PHP', 'runtime' => PHP_VERSION, 'schema_version' => schemaVersion($db), 'current_schema_version' => CURRENT_SCHEMA_VERSION, 'migration_required' => schemaVersion($db) < CURRENT_SCHEMA_VERSION, 'capabilities' => ['cleanup' => true, 'delete_all' => true, 'logout' => true]]);
             if ($resource === 'audit') {
                 $selfTest = privacySelfTest($db);
-                adminApiReply(200, ['application' => 'Barelytics PHP', 'contract_version' => CONTRACT_VERSION, 'schema_version' => schemaVersion($db), 'profile' => $config['profile'], 'fingerprint' => privacyFingerprint($db), 'configuration' => $config, 'historical_dimensions' => $selfTest['schema']['historical_dimensions'], 'configuration_history' => queryRows($db, 'SELECT timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 100'), 'checks' => $selfTest['checks'], 'result' => $selfTest['result']]);
+                adminApiReply(200, ['application' => 'Barelytics PHP', 'contract_version' => CONTRACT_VERSION, 'schema_version' => schemaVersion($db), 'profile' => $config['profile'], 'fingerprint' => privacyFingerprint($db), 'configuration' => $config, 'historical_dimensions' => $selfTest['schema']['historical_dimensions'], 'historical_reach' => $selfTest['schema']['historical_reach'], 'configuration_history' => queryRows($db, 'SELECT timestamp,profile,effective_configuration_json,configuration_hash,application_version,schema_version FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 100'), 'checks' => $selfTest['checks'], 'result' => $selfTest['result']]);
             }
             if ($resource === 'integration') {
                 $base = requestBasePath();
@@ -113,10 +116,14 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             $bots = array_values(array_unique(array_filter(array_map('trim', explode("\n", $botText)), static fn($line) => $line !== '')));
             foreach ($exclusions as $line) if (strlen($line) > 200 || !str_starts_with($line, '/') || str_contains($line, '?') || str_contains($line, '#')) adminApiReply(400, null, 'invalid_settings', 'One or more settings are invalid.');
             foreach ($bots as $line) if (strlen($line) > 200) adminApiReply(400, null, 'invalid_settings', 'One or more settings are invalid.');
-            $enabled = false; foreach (PRIVACY_DEFAULTS as $key => $_) if (($input[$key] ?? false) === true) $enabled = true;
-            if ($enabled && ($input['confirmation'] ?? '') !== 'yes') adminApiReply(400, null, 'confirmation_required', 'Confirm optional dimension collection.');
+            if (array_key_exists('daily_reach_enabled', $input) && !is_bool($input['daily_reach_enabled'])) adminApiReply(400, null, 'invalid_settings', 'Daily Reach must be a boolean.');
+            $reachEnabled = ($input['daily_reach_enabled'] ?? false) === true;
+            if ($reachEnabled && !dailyReachAvailable()) adminApiReply(400, null, 'unavailable', 'Daily Reach is unavailable in this adapter.');
+            $enabled = $reachEnabled; foreach (PRIVACY_DEFAULTS as $key => $_) if (($input[$key] ?? false) === true) $enabled = true;
+            if ($enabled && ($input['confirmation'] ?? '') !== 'yes') adminApiReply(400, null, 'confirmation_required', 'Confirm optional Extended measurement.');
             $db->beginTransaction();
             try {
+                saveDailyReachSetting($db, $reachEnabled, ($input['confirmation'] ?? '') === 'yes');
                 setSetting($db, 'retention_days', $retentionValue);
                 foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, ($input[$key] ?? false) === true ? '1' : '0');
                 setSetting($db, 'privacy_path_exclusions', implode("\n", $exclusions)); setSetting($db, 'bot_patterns', implode("\n", $bots));
@@ -125,7 +132,7 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             adminApiReply(200, effectivePrivacyConfig($db));
         }
         if ($resource === 'strict') {
-            $db->beginTransaction(); try { foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, '0'); recordPrivacyConfiguration($db); $db->commit(); }
+            $db->beginTransaction(); try { saveDailyReachSetting($db, false, true); foreach (PRIVACY_DEFAULTS as $key => $_) setSetting($db, $key, '0'); recordPrivacyConfiguration($db); $db->commit(); }
             catch (Throwable) { if ($db->inTransaction()) $db->rollBack(); adminApiReply(500, null, 'save_failed', 'Strict Mode could not be activated.'); }
             adminApiReply(200, effectivePrivacyConfig($db));
         }
@@ -134,7 +141,7 @@ function dispatchAdminApi(PDO $db, string $resource, array $query, array $input,
             try { migrateDatabase($db); adminApiReply(200, ['schema_version' => schemaVersion($db), 'migration_required' => false]); }
             catch (Throwable) { if ($db->inTransaction()) $db->rollBack(); adminApiReply(500, null, 'migration_failed', 'Database migrations did not complete; existing aggregate data was preserved.'); }
         }
-        if ($resource === 'delete-all' && ($input['confirmation'] ?? '') === 'DELETE') { $db->beginTransaction(); try { $db->exec('DELETE FROM pageviews_daily'); $db->exec('DELETE FROM referrers_daily'); if (tableExists($db, 'dimensions_daily')) $db->exec('DELETE FROM dimensions_daily'); if (tableExists($db, 'automation_daily')) $db->exec('DELETE FROM automation_daily'); $db->commit(); } catch (Throwable) { if ($db->inTransaction()) $db->rollBack(); adminApiReply(500, null, 'delete_failed', 'Aggregate data could not be deleted.'); } adminApiReply(200, ['deleted' => true]); }
+        if ($resource === 'delete-all' && ($input['confirmation'] ?? '') === 'DELETE') { $db->beginTransaction(); try { $db->exec('DELETE FROM pageviews_daily'); $db->exec('DELETE FROM referrers_daily'); if (tableExists($db, 'dimensions_daily')) $db->exec('DELETE FROM dimensions_daily'); if (tableExists($db, 'automation_daily')) $db->exec('DELETE FROM automation_daily'); if (tableExists($db, 'daily_reach')) $db->exec('DELETE FROM daily_reach'); $db->commit(); } catch (Throwable) { if ($db->inTransaction()) $db->rollBack(); adminApiReply(500, null, 'delete_failed', 'Aggregate data could not be deleted.'); } adminApiReply(200, ['deleted' => true]); }
         if ($resource === 'logout') { $_SESSION = []; session_destroy(); adminApiReply(200, ['authenticated' => false]); }
         adminApiReply(400, null, 'invalid_action', 'The administration action is not supported.');
     } catch (Throwable) { adminApiReply(500, null, 'internal_error', 'The administration request failed.'); }

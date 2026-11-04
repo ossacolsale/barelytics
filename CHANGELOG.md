@@ -14,6 +14,9 @@ All notable changes to Barelytics are documented here.
 
 ### Added
 
+- Optional PHP daily browser reach reports, disabled by default: a shared tracker IndexedDB transaction authorizes one daily send attempt, with no identifier, cookie or server browser record. Includes bounded prepare/count endpoints, UTC boundary grace, additive schema 4, settings, audit, retention, deletion and shared dashboard.
+- Real-browser reach regression harness for Chrome/Chromium, Firefox and WebKit where available; other runtime adapters explicitly retain reach unavailable.
+
 - Separate daily automation aggregates and an administration dashboard for declared search/AI crawlers, social previews, monitoring, other and uncertain automation, using shared classification rules and tests across runtimes.
 - Page-filtered country, referrer, browser, device and OS reports, plus page-detail links and breakdowns.
 - Explicit opt-in browser referrer protocol v2 that sends only a minimized hostname; Strict requests remain path-only and ignore the beacon Referer header.
@@ -27,7 +30,7 @@ All notable changes to Barelytics are documented here.
 ### Privacy
 
 - Explicitly revise the Strict aggregate contract to permit safe-path/day automation category/family counters in additive schema migration 3. No raw User-Agent, IP, browser identifier or analytics cookie is stored; declared identities remain unverified.
-- Daily Reach remains unavailable after architecture and measurement validation: common markers cannot prevent cookie-rejection, concurrency and retry bias. No reach cookie, table or automatic activation is introduced.
+- The shared-cookie Daily Reach design remains rejected. The client-gated alternative is explicitly limited to observed daily browser reach reports; IndexedDB access requires an independent ePrivacy assessment and no exact-visitor, lower-bound or universal consent-exemption claim is made.
 
 ## 1.1.0
 

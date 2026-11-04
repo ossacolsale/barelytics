@@ -75,7 +75,7 @@ grep -q 'at least 12 characters' <<<"$weak_password"
 new_password='changed-password-long-456'
 curl -A 'Mozilla/5.0' -sS -b "$jar" -c "$jar" -d "csrf=$account_csrf&current_password=$password&new_password=$new_password&confirmation=$new_password" "$base/barelytics/account.php" > "$tmp/account-changed"
 grep -q 'Administrator password changed' "$tmp/account-changed"
-php -r '$d=new PDO("sqlite:".$argv[1]); $v=(int)$d->query("SELECT MAX(version) FROM schema_migrations")->fetchColumn(); $setup=$d->query("SELECT value FROM settings WHERE key=\047setup_complete\047")->fetchColumn(); $app=$d->query("SELECT value FROM settings WHERE key=\047application_version\047")->fetchColumn(); $hash=$d->query("SELECT value FROM settings WHERE key=\047admin_password_hash\047")->fetchColumn(); if ($v !== 3 || $setup !== "1" || $app !== "1.1.0" || !password_verify($argv[2], $hash)) exit(1);' "$db" "$new_password"
+php -r '$d=new PDO("sqlite:".$argv[1]); $v=(int)$d->query("SELECT MAX(version) FROM schema_migrations")->fetchColumn(); $setup=$d->query("SELECT value FROM settings WHERE key=\047setup_complete\047")->fetchColumn(); $app=$d->query("SELECT value FROM settings WHERE key=\047application_version\047")->fetchColumn(); $hash=$d->query("SELECT value FROM settings WHERE key=\047admin_password_hash\047")->fetchColumn(); if ($v !== 4 || $setup !== "1" || $app !== "1.1.0" || !password_verify($argv[2], $hash)) exit(1);' "$db" "$new_password"
 rm -f "$jar"
 page="$(curl -A 'Mozilla/5.0' -sS -b "$jar" -c "$jar" "$base/barelytics/admin.php")"
 csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$page")"
@@ -168,6 +168,7 @@ after="$(awk '$6 == "PHPSESSID" {print $7}' "$jar")"
 php -r '$d=new PDO("sqlite:".$argv[1]); $h=$d->query("SELECT value FROM settings WHERE key=\047admin_password_hash\047")->fetchColumn(); $n=(int)$d->query("SELECT COUNT(*) FROM pageviews_daily")->fetchColumn(); if (!password_verify($argv[2], $h) || $n !== 2) exit(1);' "$db" "$recovery_password"
 
 php "$root/tests/protocol-http.php" "$base" "$db"
+php "$root/tests/reach-http.php" "$base" "$db" "$jar"
 
 kill "$server_pid"; wait "$server_pid" 2>/dev/null || true; server_pid=''
 bad_port="$(php -r '$s=stream_socket_server("tcp://127.0.0.1:0", $e, $m); echo substr(strrchr(stream_socket_get_name($s, false), ":"), 1); fclose($s);')"
@@ -180,5 +181,12 @@ for _ in $(seq 1 50); do
 done
 status="$(curl -A 'Mozilla/5.0' -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data '{"path":"/degraded"}' "http://127.0.0.1:$bad_port/barelytics/track.php")"
 [[ "$status" == 204 ]]
+
+for endpoint in reach-prepare.php reach-count.php; do
+  body='{"path":"/degraded"}'
+  if [[ "$endpoint" == reach-count.php ]]; then body='{"path":"/degraded","day":"2026-11-03"}'; fi
+  status="$(curl -A 'Mozilla/5.0' -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data "$body" "http://127.0.0.1:$bad_port/barelytics/$endpoint")"
+  [[ "$status" == 204 ]]
+done
 
 echo 'HTTP, admin authentication, CSRF, aggregation, and retention integration checks passed.'

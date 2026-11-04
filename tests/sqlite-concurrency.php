@@ -9,7 +9,7 @@ if (!extension_loaded('pdo_sqlite') || !function_exists('pcntl_fork')) {
 $directory = sys_get_temp_dir() . '/barelytics-concurrency-' . bin2hex(random_bytes(6));
 mkdir($directory, 0700);
 putenv('BARELYTICS_DATABASE_PATH=' . $directory . '/analytics.sqlite');
-$db = \Barelytics\openDatabase(); unset($db);
+$db = \Barelytics\openDatabase(); \Barelytics\saveDailyReachSetting($db, true, true); unset($db);
 try {
     $children = [];
     for ($worker = 0; $worker < 4; $worker++) {
@@ -18,7 +18,10 @@ try {
         if ($pid === 0) {
             try {
                 $db = \Barelytics\connectDatabase();
-                for ($i = 0; $i < 50; $i++) \Barelytics\recordPageview($db, '/concurrent', 'IT', 'source.test', ['browser' => 'Other']);
+                for ($i = 0; $i < 50; $i++) {
+                    \Barelytics\recordPageview($db, '/concurrent', 'IT', 'source.test', ['browser' => 'Other']);
+                    if (\Barelytics\countDailyReach($db, '/concurrent', gmdate('Y-m-d'), null, 'Mozilla/5.0') !== 204) throw new RuntimeException('Reach writer failed.');
+                }
                 exit(0);
             } catch (Throwable) { exit(1); }
         }
@@ -32,11 +35,18 @@ try {
     foreach (['pageviews_daily', 'referrers_daily', 'dimensions_daily'] as $table) {
         if ((int) \Barelytics\queryColumn($db, "SELECT SUM(views) FROM $table WHERE path='/concurrent'") !== 200) throw new RuntimeException('Lost concurrent aggregates.');
     }
+    if ((int) \Barelytics\queryColumn($db, 'SELECT SUM(reports) FROM daily_reach') !== 200) throw new RuntimeException('Lost concurrent reach increments.');
     $lock = \Barelytics\connectDatabase(); $lock->exec('BEGIN IMMEDIATE');
     $start = microtime(true); $busy = false;
     try { \Barelytics\recordPageview($db, '/busy'); } catch (PDOException) { $busy = true; }
     $lock->exec('ROLLBACK');
     if (!$busy || microtime(true) - $start > 3) throw new RuntimeException('Busy-lock handling is not bounded.');
+    $lock->exec('BEGIN IMMEDIATE');
+    $reachStart = microtime(true); $reachBusy = false;
+    try { \Barelytics\countDailyReach($db, '/busy-reach', gmdate('Y-m-d'), null, 'Mozilla/5.0'); } catch (PDOException) { $reachBusy = true; }
+    $lock->exec('ROLLBACK');
+    if (!$reachBusy || microtime(true) - $reachStart > 3 || (int) \Barelytics\queryColumn($db, 'SELECT SUM(reports) FROM daily_reach') !== 200) throw new RuntimeException('Busy reach write was not bounded or left a partial increment.');
+    if (\Barelytics\countDailyReach($db, '/after-lock', gmdate('Y-m-d'), null, 'Mozilla/5.0') !== 204) throw new RuntimeException('Reach did not recover after the busy lock.');
     \Barelytics\recordPageview($db, '/after-lock');
     if ((int) \Barelytics\queryColumn($db, "SELECT COUNT(*) FROM pageviews_daily WHERE path='/busy'") !== 0) throw new RuntimeException('A failed transaction left a partial view.');
     unset($db, $lock);

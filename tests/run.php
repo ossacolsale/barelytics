@@ -74,7 +74,7 @@ $ciWorkflow = (string) file_get_contents($projectRoot . '/.github/workflows/ci.y
 $releaseWorkflow = (string) file_get_contents($projectRoot . '/.github/workflows/release.yml');
 $phpAction = 'shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962';
 $rubyAction = 'ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94';
-$assert(substr_count($ciWorkflow . $releaseWorkflow, $phpAction) === 3, 'all PHP setup action references are pinned to the reviewed upstream commit');
+$assert(substr_count($ciWorkflow . $releaseWorkflow, $phpAction) === 4, 'all PHP setup action references are pinned to the reviewed upstream commit');
 $assert(substr_count($ciWorkflow . $releaseWorkflow, $rubyAction) === 2, 'all Ruby setup action references are pinned to the reviewed upstream commit');
 $assert(str_contains((string) file_get_contents($projectRoot . '/.github/dependabot.yml'), 'package-ecosystem: github-actions')
     && str_contains((string) file_get_contents($projectRoot . '/.github/dependabot.yml'), 'interval: weekly'), 'Dependabot proposes weekly GitHub Actions updates');
@@ -332,7 +332,7 @@ if (!$sqliteAvailable) {
         $assert((int) \Barelytics\queryColumn($db, "SELECT COUNT(*) FROM automation_daily WHERE day='2000-01-01'") === 0, 'automation participates in retention');
         $legacy = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $legacy->exec(file_get_contents(__DIR__ . '/../spec/test-vectors/legacy-v2.sql'));
-        $assert(\Barelytics\migrateDatabase($legacy) === 3 && \Barelytics\migrateDatabase($legacy) === 3, 'schema-2 migration is additive and repeatable');
+        $assert(\Barelytics\migrateDatabase($legacy) === \Barelytics\CURRENT_SCHEMA_VERSION && \Barelytics\migrateDatabase($legacy) === \Barelytics\CURRENT_SCHEMA_VERSION, 'schema-2 migration is additive and repeatable');
         $assert((int) \Barelytics\queryColumn($legacy, "SELECT views FROM pageviews_daily WHERE path='/legacy'") === 7 && \Barelytics\setting($legacy, 'admin_password_hash', '') === 'fixture-unchanged-credential' && \Barelytics\effectivePrivacyConfig($legacy)['retention_days'] === 30, 'migration preserves legacy totals, credentials and settings');
         $legacy->exec('CREATE TABLE request_log(user_agent TEXT)');
         $assert(\Barelytics\schemaAudit($legacy, 'STRICT', \Barelytics\effectivePrivacyConfig($legacy))['status'] === 'FAIL', 'unrecognized raw-data tables fail audit');

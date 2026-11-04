@@ -17,6 +17,11 @@ Optional aggregate dimensions are off by default and must be deliberately enable
 - Optional referrer hostname (off by default)
 - Optional coarse browser, device, and operating-system categories (off by default)
 
+PHP additionally supports optional daily browser reach reports (off by default):
+a site-wide `daily_reach(day,reports)` aggregate and one local IndexedDB `{day}`
+record, only in explicitly enabled Extended measurement. No local page/history
+or server browser record exists.
+
 These are aggregated on receipt in `pageviews_daily`, `referrers_daily`, `dimensions_daily` and `automation_daily`; there is no event-level history. Automation never contributes to ordinary page views or optional human dimensions.
 
 ## Not collected
@@ -33,7 +38,7 @@ The application does not read `REMOTE_ADDR`. For country statistics it reads onl
 The User-Agent is used transiently for best-effort bot classification and is not stored. When browser/device/OS categories are enabled, it is parsed in memory and only selected coarse categories are stored. Browser referrer collection requires both the server setting and an explicit tracker opt-in; the browser minimizes `document.referrer` to a hostname before sending protocol v2. Strict protocol v1 stays path-only and ignores the beacon Referer header. Native server-page integrations may minimize their real navigation referrer. Historical browser-beacon hostname rows cannot be corrected retrospectively. See the [collector contract](../spec/protocol.md). Retention defaults to 180 days and can be set to 30, 90, 180, or 365 days.
 
 Whether consent or other notices are legally required depends on applicable ePrivacy rules, national implementation, the site's context, and other technologies in use. Barelytics describes technical behavior and does not certify legal compliance. Hosting infrastructure may separately process IP addresses and request metadata in access, proxy, CDN, or WAF logs; those systems require a separate assessment.
-Daily Reach is unavailable following the [architecture and measurement review](decisions/daily-reach.md). No analytics cookie, reach table or distinct-browser metric has been introduced. A shared-value marker would still need an ePrivacy assessment and would change the effective privacy profile away from Strict.
+Daily browser reach reports are available initially in PHP only, disabled by default. They use a transactional local day marker before a single send attempt; storage/network failures miss observations, while storage resets and forged requests can inflate them. They are neither exact unique people nor a guaranteed lower bound. IndexedDB access requires an ePrivacy assessment separately from GDPR infrastructure processing, without any automatic exemption claim. Strict performs no reach requests or storage access. Enablement, consent callbacks, disablement and explicit cleanup are documented in [configuration](configuration.md#daily-browser-reach-reports-php) and the [ADR](decisions/daily-reach.md).
 
 ## Administration interface
 

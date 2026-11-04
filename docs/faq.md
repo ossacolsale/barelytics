@@ -6,7 +6,7 @@ Barelytics is self-hosted, first-party software that stores aggregate page views
 
 ## Does it identify unique visitors?
 
-No. Strict Mode has no visitor IDs, sessions, cookies, fingerprints, or IP storage. A page-view count is a count of requests, not a count of people. Optional Daily Reach was evaluated and is unavailable because its measurement gate was not met; see the [ADR](decisions/daily-reach.md).
+No. Strict Mode has no visitor IDs, sessions, cookies, fingerprints, or IP storage. A page-view count is a count of requests, not a count of people. Optional PHP daily browser reach reports count partial first-daily observations using an IndexedDB gate, without identifying visitors. They can miss or duplicate observations; see the [ADR](decisions/daily-reach.md).
 
 ## What does it store?
 

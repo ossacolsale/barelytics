@@ -20,7 +20,7 @@ class WordPressPackageTests(unittest.TestCase):
                 ".htaccess", "account.php", "admin.php", "admin.css", "audit.php",
                 "cleanup.php", "diagnostics.php", "install.php", "token-hash.html",
                 "token-hash.js", "track.php", "track.js", "src/.htaccess",
-                "src/Barelytics.php", "src/AdminApi.php", "src/Automation.php", "data/.htaccess",
+                "src/Barelytics.php", "src/AdminApi.php", "src/Automation.php", "src/DailyReach.php", "data/.htaccess",
                 "admin-ui/index.html", "admin-ui/app.js", "admin-ui/admin.css",
                 "admin-ui/config.js", "admin-ui/brand-mark.png", "admin-ui/README.md",
             ]

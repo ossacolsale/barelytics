@@ -43,3 +43,11 @@ Barelytics does not control those systems, and they may process IP addresses, Us
 ## Legal boundary
 
 This guide describes technical checks. It does not establish legal compliance, determine whether consent is required, or replace jurisdiction-specific legal review. The site operator remains responsible for applicable legal basis, transparency, retention, third-party processing, server logging, and other obligations.
+
+For optional PHP reach, repeat the check in Strict (no prepare/count requests
+or IndexedDB access) and after acknowledged Extended enablement plus tracker
+opt-in. Inspect only one IndexedDB `{day}` record, no page/history or individual
+value. Reach requests omit cookies/referrers; SQL has only day/report totals.
+Disable and verify counts stop while `historical_reach` remains visible until
+retention/delete-all. An inactive browser marker requires later host/CMP cleanup;
+server disablement cannot remotely delete it.

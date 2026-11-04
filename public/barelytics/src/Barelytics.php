@@ -9,6 +9,7 @@ use PDO;
 use Throwable;
 
 require_once __DIR__ . '/Automation.php';
+require_once __DIR__ . '/DailyReach.php';
 
 const DEFAULT_BOT_PATTERNS = [
     'bot', 'crawler', 'spider', 'slurp', 'bingpreview', 'headless', 'lighthouse',
@@ -16,8 +17,8 @@ const DEFAULT_BOT_PATTERNS = [
     'twitterbot', 'linkedinbot', 'discordbot', 'telegrambot', 'whatsapp', 'petalbot',
     'yandex', 'baiduspider', 'bytespider', 'duckduckbot', 'applebot', 'googlebot', 'bingbot',
 ];
-const CURRENT_SCHEMA_VERSION = 3;
-const CONTRACT_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 4;
+const CONTRACT_VERSION = 3;
 const APPLICATION_VERSION = '1.1.0';
 const PRIVACY_DEFAULTS = [
     'country_collection' => false,
@@ -399,6 +400,10 @@ function migrateDatabase(PDO $db): int
         3 => static function (PDO $db): void {
             $db->exec('CREATE TABLE IF NOT EXISTS automation_daily(day TEXT NOT NULL,path TEXT NOT NULL,category TEXT NOT NULL,family TEXT NOT NULL,requests INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,path,category,family))');
         },
+        4 => static function (PDO $db): void {
+            $db->exec('CREATE TABLE IF NOT EXISTS daily_reach(day TEXT PRIMARY KEY,reports INTEGER NOT NULL DEFAULT 0)');
+            setSetting($db, 'daily_reach_enabled', '0');
+        },
     ];
     $applied = (int) queryColumn($db, 'SELECT COALESCE(MAX(version), 0) FROM schema_migrations');
     if ($applied > CURRENT_SCHEMA_VERSION) throw new \RuntimeException('The database requires a newer Barelytics runtime.');
@@ -443,7 +448,7 @@ function schemaVersion(PDO $db): int
 /** Canonical effective configuration shared by tracking, administration and audit. Invalid values fail closed. */
 function effectivePrivacyConfig(PDO $db): array
 {
-    $config = ['pageviews' => true, 'retention_days' => 180, 'automation_collection' => true, 'daily_reach_available' => false, 'reporting_day' => 'UTC'];
+    $config = ['pageviews' => true, 'retention_days' => 180, 'automation_collection' => true, 'daily_reach_available' => dailyReachAvailable(), 'daily_reach_enabled' => false, 'reporting_day' => 'UTC'];
     foreach (PRIVACY_DEFAULTS as $key => $default) {
         try { $value = setting($db, $key, '0'); }
         catch (Throwable) { $value = '0'; }
@@ -460,13 +465,17 @@ function effectivePrivacyConfig(PDO $db): array
         $config['path_exclusions'] = DEFAULT_PATH_EXCLUSIONS;
         $config['bot_patterns'] = [];
     }
+    try { $config['daily_reach_enabled'] = dailyReachAvailable() && schemaVersion($db) === CURRENT_SCHEMA_VERSION
+        && getenv('BARELYTICS_DAILY_REACH_ALLOWED') !== '0' && setting($db, 'daily_reach_enabled', '0') === '1'; }
+    catch (Throwable) { $config['daily_reach_enabled'] = false; }
     sort($config['path_exclusions'], SORT_STRING);
     sort($config['bot_patterns'], SORT_STRING);
     $config['trusted_country_header'] = getenv('BARELYTICS_COUNTRY_HEADER') ?: 'HTTP_CF_IPCOUNTRY';
-    $config['profile'] = count(array_filter(array_intersect_key($config, PRIVACY_DEFAULTS))) === 0 ? 'strict' : 'extended';
-    // Identifiers, storage, generic events, query strings and third-party services are unsupported.
+    $config['profile'] = !$config['daily_reach_enabled'] && count(array_filter(array_intersect_key($config, PRIVACY_DEFAULTS))) === 0 ? 'strict' : 'extended';
+    // Identifiers, generic events, query strings and third-party services are unsupported.
+    // IndexedDB is limited to the explicitly enabled Extended day marker.
     $config += ['visitor_id' => false, 'session_id' => false, 'fingerprinting' => false, 'cookies' => false,
-        'local_storage' => false, 'session_storage' => false, 'indexeddb' => false, 'cross_site_tracking' => false,
+        'local_storage' => false, 'session_storage' => false, 'indexeddb' => $config['daily_reach_enabled'], 'cross_site_tracking' => false,
         'event_collection' => false, 'query_string_collection' => false, 'third_party_analytics' => false,
         'user_agent_collection' => false, 'screen_dimensions' => false, 'language_collection' => false, 'custom_parameters' => false];
     return $config;
@@ -511,6 +520,7 @@ function schemaAudit(PDO $db, string $profile, ?array $config = null): array
         'referrers_daily' => ['day','path','referrer_host','views'],
         'dimensions_daily' => ['day','path','dimension','value','views'],
         'automation_daily' => ['day','path','category','family','requests'],
+        'daily_reach' => ['day','reports'],
         'settings' => ['key','value'],
         'schema_migrations' => ['version','applied_at'],
         'privacy_configuration_history' => ['timestamp','profile','effective_configuration_json','configuration_hash','application_version','schema_version'],
@@ -544,12 +554,13 @@ function schemaAudit(PDO $db, string $profile, ?array $config = null): array
         }
         if ((int) queryColumn($db, "SELECT COUNT(*) FROM dimensions_daily WHERE dimension NOT IN ('browser','device','os')") > 0) $unexpected[] = 'unsupported dimension data exists';
     }
-    return ['status' => $unexpected ? 'FAIL' : 'PASS', 'tables' => $tables, 'unexpected' => $unexpected, 'historical_dimensions' => $historical];
+    return ['status' => $unexpected ? 'FAIL' : 'PASS', 'tables' => $tables, 'unexpected' => $unexpected, 'historical_dimensions' => $historical, 'historical_reach' => tableExists($db, 'daily_reach') && queryColumn($db, 'SELECT 1 FROM daily_reach LIMIT 1') !== false];
 }
 
 function runtimePrivacyChecks(): array
 {
-    $runtimeFiles = [dirname(__DIR__) . '/track.js', dirname(__DIR__) . '/track.php', __FILE__, __DIR__ . '/Automation.php'];
+    $runtimeFiles = [dirname(__DIR__) . '/track.js', dirname(__DIR__) . '/track.php', __FILE__, __DIR__ . '/Automation.php', __DIR__ . '/DailyReach.php'];
+    if (dailyReachAvailable()) array_push($runtimeFiles, dirname(__DIR__) . '/reach-prepare.php', dirname(__DIR__) . '/reach-count.php');
     $runtimeCode = array_map(static fn($file) => is_file($file) ? (string) file_get_contents($file) : '', $runtimeFiles);
     $runtimeAvailable = !in_array('', $runtimeCode, true);
     $remotePattern = '~https?' . ':' . '/' . '/[a-z0-9]~i';
@@ -579,9 +590,13 @@ function privacySelfTest(PDO $db): array
         catch (Throwable) { $valid = false; }
         if (!$valid) $checks[] = ['name' => $key . ' configuration invalid; effective collection fails closed', 'status' => 'WARN'];
     }
-    foreach (['cookies','local_storage','session_storage','indexeddb','visitor_id','session_id','fingerprinting','cross_site_tracking','event_collection','query_string_collection','third_party_analytics','user_agent_collection','screen_dimensions','language_collection','custom_parameters'] as $key) {
+    foreach (['cookies','local_storage','session_storage','visitor_id','session_id','fingerprinting','cross_site_tracking','event_collection','query_string_collection','third_party_analytics','user_agent_collection','screen_dimensions','language_collection','custom_parameters'] as $key) {
         $checks[] = ['name' => $key . ' disabled', 'status' => $config[$key] ? 'FAIL' : 'PASS'];
     }
+    $checks[] = ['name' => $config['daily_reach_enabled'] ? 'Extended reach uses only an IndexedDB day marker' : 'Daily Reach and IndexedDB activity disabled', 'status' => $config['indexeddb'] === $config['daily_reach_enabled'] && (!$config['daily_reach_enabled'] || $config['profile'] === 'extended') ? 'PASS' : 'FAIL'];
+    try { $rawReach = setting($db, 'daily_reach_enabled', '0'); $validReach = in_array($rawReach, ['0','1'], true); }
+    catch (Throwable) { $validReach = false; }
+    if (!$validReach) $checks[] = ['name' => 'Invalid Daily Reach setting; effective collection fails closed', 'status' => 'WARN'];
     try { $rawRetention = setting($db, 'retention_days', '180'); $validRetention = in_array($rawRetention, ['30','90','180','365'], true); }
     catch (Throwable) { $validRetention = false; }
     if (!$validRetention) $checks[] = ['name' => 'Invalid retention configuration; safe 180-day default is effective', 'status' => 'WARN'];
@@ -678,7 +693,8 @@ function cleanRetentionBatch(PDO $db, ?int $retention = null, int $limit = 1000)
             $dimensionCount = executeStatement($db, 'DELETE FROM dimensions_daily WHERE rowid IN (SELECT rowid FROM dimensions_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]);
         }
         $automationCount = tableExists($db, 'automation_daily') ? executeStatement($db, 'DELETE FROM automation_daily WHERE rowid IN (SELECT rowid FROM automation_daily WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]) : 0;
-        $complete = $automationCount < $limit && $pageCount < $limit && $referrerCount < $limit && $dimensionCount < $limit;
+        $reachCount = tableExists($db, 'daily_reach') ? executeStatement($db, 'DELETE FROM daily_reach WHERE rowid IN (SELECT rowid FROM daily_reach WHERE day < :cutoff ORDER BY day LIMIT :limit)', [':cutoff' => $cutoff, ':limit' => $limit]) : 0;
+        $complete = $reachCount < $limit && $automationCount < $limit && $pageCount < $limit && $referrerCount < $limit && $dimensionCount < $limit;
         setSetting($db, 'last_cleanup_at', gmdate('Y-m-d H:i:s'));
         setSetting($db, 'cleanup_pending', $complete ? '0' : '1');
         $db->exec('COMMIT');

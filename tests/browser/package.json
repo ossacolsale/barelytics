@@ -1,0 +1,7 @@
+{
+  "name": "barelytics-reach-browser-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node reach.mjs" },
+  "devDependencies": { "playwright": "1.58.2" }
+}

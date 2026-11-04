@@ -26,6 +26,7 @@ jobs:
       - name: Regression checks
         run: |
           php tests/run.php
+          php tests/daily-reach.php
           php tests/wordpress.php
           php tests/sqlite-concurrency.php
       - name: HTTP integration checks
@@ -160,3 +161,22 @@ jobs:
         with:
           name: barelytics-wordpress-plugin
           path: build/barelytics-wordpress.zip
+
+  reach-browser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite
+          coverage: none
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: tests/browser
+      - run: npx playwright install --with-deps chromium firefox webkit
+        working-directory: tests/browser
+      - run: npm test
+        working-directory: tests/browser

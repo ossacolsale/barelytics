@@ -19,3 +19,7 @@ collectors pause on newer schemas; restore the matching code/database backup for
 rollback. Native old versions do not know the automation table, so rolling back
 stops its writes/cleanup; do not run mixed versions against one store. No downgrade
 should drop or reinterpret historical aggregates.
+
+PHP migration 4 adds only `daily_reach(day PRIMARY KEY, reports)`, as specified
+in [daily-reach.md](daily-reach.md). Native runtimes retain schema 3 and advertise
+reach unavailable; shared database upgrades across these versions are unsupported.
