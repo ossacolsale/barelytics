@@ -92,6 +92,7 @@ try {
         await page.locator('[data-page=pages][data-step="1"]').click();await page.waitForFunction(()=>document.querySelector('#pages-page').textContent.includes('Page 2'));
         assert.equal(await page.locator('[data-page=pages][data-step="1"]').isDisabled(),true);
         await page.locator('[data-page=pages][data-step="-1"]').click();await page.waitForFunction(()=>document.querySelector('#pages-page').textContent.includes('Page 1'));
+        const pagesUrl=page.url();
         const path=await page.locator('#pages-table a').first().textContent();await page.locator('#pages-table a').first().click();
         await page.waitForFunction(()=>document.querySelector('#selected-path').textContent.length>0);
         assert.equal(await page.locator('#page-detail').isVisible(),true);assert.equal(await page.locator('#selected-path').textContent(),path);
@@ -100,8 +101,21 @@ try {
         await captureScreenshot({path:resolve(screenshots,`${name}-page-detail-desktop.png`),fullPage:true});
         await page.setViewportSize({width:320,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
         await captureScreenshot({path:resolve(screenshots,`${name}-page-detail-mobile.png`),fullPage:true});
-        await page.goBack({waitUntil:'networkidle'});assert.equal(await page.locator('#pages').isVisible(),true);
-        await page.goForward({waitUntil:'networkidle'});assert.equal(await page.locator('#page-detail').isVisible(),true);
+        const detailUrl=page.url();
+        // Same-document history can finish before the hashchange handler paints.
+        // Wait for the actual report state, including on a slower WebKit runner.
+        for(let traversal=0;traversal<3;traversal++) {
+          await page.goBack({waitUntil:'networkidle'});
+          await page.locator('#pages').waitFor({state:'visible'});
+          await page.locator('#loading').waitFor({state:'hidden'});
+          assert.equal(page.url(),pagesUrl);assert.equal(await page.locator('#period').inputValue(),'90');
+          assert.match(await page.locator('#pages-page').textContent(),/Page 1/);
+          await page.goForward({waitUntil:'networkidle'});
+          await page.locator('#page-detail').waitFor({state:'visible'});
+          await page.locator('#loading').waitFor({state:'hidden'});
+          assert.equal(page.url(),detailUrl);assert.equal(await page.locator('#period').inputValue(),'90');
+          assert.equal(await page.locator('#selected-path').textContent(),path);
+        }
         for(const target of ['admin.php?view=daily','admin.php?view=dimensions','admin.php?ui=1']){await page.goto(base+prefix+target,{waitUntil:'networkidle'});assert.equal(await page.locator('.sidebar').count(),1);}
         for(const bucket of ['day','week','month']) {
           await page.goto(base+prefix+'admin.php#overview?period=365&bucket='+bucket,{waitUntil:'networkidle'});

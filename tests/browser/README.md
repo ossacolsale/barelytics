@@ -68,6 +68,11 @@ Strict/Extended states, audit source/configuration separation, CSS status/type,
 console errors, overflow, authorization and CSRF. These fixtures are temporary and
 never contain real analytics data.
 
+History coverage traverses Back/Forward three times on each mount and engine,
+checking the exact URL, period, pagination and selected path. It waits for the
+destination section and report loading state: `networkidle` alone can resolve
+before a same-document `hashchange` handler has updated the interface in WebKit.
+
 Text-resize regressions force navigation open and check 200%/400% text with the
 default font and a generic monospace font. Overflow diagnostics include internal
 scroll sizes as well as element boxes, because oversized text can escape a box
