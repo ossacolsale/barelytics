@@ -61,6 +61,119 @@ try {
         const open=indexedDB.open('barelytics-daily-reach',1);open.onerror=reject;
         open.onsuccess=()=>{const db=open.result,tx=db.transaction('state','readonly'),read=tx.objectStore('state').get('pages');tx.oncomplete=()=>{done(read.result);db.close();};};
       }));
+      const iphoneAgents = {
+        safari: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1',
+        webview: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
+      };
+      // Count storage property access without reading any actual stored values.
+      const observeStorage = async context => context.addInitScript(() => {
+        const storage = window.indexedDB; window.__storageReads = 0;
+        Object.defineProperty(window, 'indexedDB', {get() { window.__storageReads++; return storage; }});
+      });
+      for (const [client, userAgent] of Object.entries(iphoneAgents)) {
+        for (const mode of ['allowed', 'strict', 'opt-out', 'false', 'throw', 'reject', 'storage', 'missing-storage', 'hash', 'prepare']) {
+          await caseRun(`Mobile ${client}: ${mode}, independent transport and storage stages`, async () => {
+            enabled(false); pageEnabled(mode !== 'strict');
+            if (mode === 'opt-out') configure({reach_attribute:'false'});
+            const mobile = await browser.newContext({userAgent, viewport:{width:390,height:844}, hasTouch:true});
+            const requests = {view:0, prepare:0, count:0};
+            mobile.on('request', request => {
+              const path = new URL(request.url()).pathname;
+              if (path.endsWith('/track.php')) requests.view++;
+              if (path.endsWith('/reach-prepare.php')) requests.prepare++;
+              if (path.endsWith('/reach-count.php')) requests.count++;
+            });
+            try {
+              if (mode === 'prepare') await mobile.route('**/reach-prepare.php', route => route.abort('failed'));
+              await mobile.addInitScript(mode => {
+                const storage = window.indexedDB; window.__storageReads = 0;
+                Object.defineProperty(window, 'indexedDB', {get() {
+                  window.__storageReads++;
+                  if (mode === 'storage') throw new DOMException('Unavailable', 'SecurityError');
+                  if (mode === 'missing-storage') return undefined;
+                  return storage;
+                }});
+                window.BARELYTICS_REACH_PERMISSION = () => {
+                  if (mode === 'throw') throw new Error('Denied');
+                  if (mode === 'reject') return Promise.reject(new Error('Denied'));
+                  return mode !== 'false';
+                };
+                if (mode === 'hash') Object.defineProperty(window.crypto, 'subtle', {value:undefined});
+              }, mode);
+              const page = await visit(mobile, '/chat_utili_inutili_dannose.html');
+              const prepares = ['allowed','storage','missing-storage','hash','prepare'].includes(mode) ? 1 : 0;
+              const counts = mode === 'allowed' ? 1 : 0;
+              assert.deepEqual(requests, {view:1,prepare:prepares,count:counts});
+              assert.equal(await page.evaluate(() => window.__storageReads), ['allowed','storage','missing-storage'].includes(mode) ? 1 : 0);
+              assert.equal(views(),1); assert.equal(reports(),0); assert.equal(pageReports(),counts);
+            } finally { await mobile.close(); }
+          });
+        }
+      }
+      await caseRun('Pageview-only script: ordinary UA and 204 do not imply Reach execution', async(context,attempts)=>{
+        pageEnabled(true);await observeStorage(context);let posts=0,prepares=0;
+        context.on('request',r=>{if(r.url().endsWith('/track.php'))posts++;if(r.url().endsWith('/reach-prepare.php'))prepares++;});
+        await context.route('**/scripted',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Synthetic scripted client</title>'}));
+        const page=await visit(context,'/scripted');
+        const statuses=await page.evaluate(async()=>{
+          const result=[];
+          for(let i=0;i<5;i++)result.push((await fetch('/barelytics/track.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:'/scripted'})})).status);
+          return result;
+        });
+        assert.deepEqual(statuses,[204,204,204,204,204]);
+        assert.equal(posts,5);assert.equal(prepares,0);assert.equal(attempts.length,0);
+        assert.equal(await page.evaluate(()=>window.__storageReads),0);
+        assert.equal(views(),5);assert.equal(reports(),0);assert.equal(pageReports(),0);
+      });
+      await caseRun('Cache: fresh tracker revalidates and central Page Reach needs no HTML opt-in', async (context, attempts) => {
+        enabled(false); pageEnabled(true); await observeStorage(context);
+        let posts=0, prepares=0;
+        context.on('request', r => { if(r.url().endsWith('/track.php'))posts++; if(r.url().endsWith('/reach-prepare.php'))prepares++; });
+        const page=await context.newPage(); const script=page.waitForResponse(r=>r.url().endsWith('/track.js'));
+        await page.goto(base+'/cache-first',{waitUntil:'networkidle'});
+        const response=await script; assert.equal(response.status(),200);
+        assert.equal(response.headers()['cache-control'],'no-cache, must-revalidate');
+        const etag=response.headers().etag;
+        const conditional=await context.request.get(base+'/barelytics/track.js',{headers:{'If-None-Match':etag}});
+        assert.equal(conditional.status(),304); assert.equal(conditional.headers()['cache-control'],'no-cache, must-revalidate');
+        // Engines may re-fetch unconditionally; conditional support is checked above.
+        const validation=page.waitForResponse(r=>r.url().endsWith('/track.js'));
+        await page.goto(base+'/cache-second',{waitUntil:'networkidle'});
+        assert.equal((await validation).headers()['cache-control'],'no-cache, must-revalidate');
+        assert.equal(posts,2); assert.equal(prepares,2); assert.equal(attempts.length,2);
+        assert.equal(await page.evaluate(()=>window.__storageReads),1);
+        assert.equal(views(),2); assert.equal(reports(),0); assert.equal(pageReports(),2);
+      });
+      await caseRun('Cache: fresh legacy copy survives deployment until URL changes', async (context, attempts) => {
+        enabled(false); pageEnabled(true); configure({tracker_legacy:true}); await observeStorage(context);
+        let posts=0, prepares=0;
+        context.on('request',r=>{if(r.url().endsWith('/track.php'))posts++;if(r.url().endsWith('/reach-prepare.php'))prepares++;});
+        const first=await visit(context,'/legacy-first');
+        assert.equal(await first.evaluate(()=>window.__storageReads),0);
+        configure({}); // FTP replacement cannot change a still-fresh browser copy.
+        await first.goto(base+'/legacy-second',{waitUntil:'networkidle'});
+        assert.equal(await first.evaluate(()=>window.__storageReads),0);
+        assert.equal(posts,2);assert.equal(prepares,0);assert.equal(attempts.length,0);
+        assert.equal(views(),2);assert.equal(reports(),0);assert.equal(pageReports(),0);
+        configure({tracker_version:true});
+        await first.goto(base+'/legacy-remediated',{waitUntil:'networkidle'});
+        assert.equal(await first.evaluate(()=>window.__storageReads),1);
+        assert.equal(posts,3);assert.equal(prepares,1);assert.equal(attempts.length,1);
+        assert.equal(views(),3);assert.equal(reports(),0);assert.equal(pageReports(),1);
+      });
+      await caseRun('Authorization: missing headers are ambiguous and prevent prepare', async(context,attempts)=>{
+        pageEnabled(true);await observeStorage(context);let posts=0,prepares=0;
+        context.on('request',r=>{if(r.url().endsWith('/track.php'))posts++;if(r.url().endsWith('/reach-prepare.php'))prepares++;});
+        await context.route('**/track.php',async route=>{
+          const response=await route.fetch();const headers=response.headers();
+          assert.equal(headers['barelytics-page-reach-enabled'],'1');
+          for(const key of Object.keys(headers))if(key.startsWith('barelytics-'))delete headers[key];
+          await route.fulfill({response,headers});
+        });
+        const page=await visit(context);assert.equal(await page.evaluate(()=>window.__storageReads),0);
+        assert.equal(posts,1);assert.equal(prepares,0);assert.equal(attempts.length,0);
+        assert.equal(views(),1);assert.equal(reports(),0);assert.equal(pageReports(),0);
+      });
       await caseRun('Page Reach: four views, one combined attempt and only local hashes', async (context, attempts) => {
         pageEnabled(true);const page=await visit(context,'/article-a');
         const initial=await localPages(page);

@@ -47,7 +47,7 @@ $before=(int)\Barelytics\queryColumn($db,'SELECT SUM(views) FROM pageviews_daily
 $check($status===400 && !str_contains($headers,'Barelytics-Reach-') && (int)\Barelytics\queryColumn($db,'SELECT SUM(views) FROM pageviews_daily')===$before, 'Rejected v2 does not count or authorize reach.');
 [$status,,$headers]=$request('track.php',['path'=>'/central-v2']);
 $check($status===204 && str_contains($headers,'Barelytics-Reach-Enabled: 1') && (int)\Barelytics\queryColumn($db,'SELECT SUM(views) FROM pageviews_daily')===$before+1, 'Path-only fallback counts once and uses central reach policy.');
-foreach ([['/private/a','Mozilla/5.0'],['/article','GPTBot/1']] as [$path,$agent]) {
+foreach ([['/private/a','Mozilla/5.0'],['/article','GPTBot/1'],['/article','Meta-WebIndexer/1.1'],['/article','Meta-ExternalAgent/1.1'],['/article','Meta-ExternalFetcher/1.1']] as [$path,$agent]) {
     [$status,,$headers]=$request('track.php',['path'=>$path],'POST',['User-Agent'=>$agent]);
     $check($status===204 && !str_contains($headers,'Barelytics-Reach-'), 'Ineligible pageview never authorizes browser reach.');
     [$status,$data]=$request('reach-prepare.php',['path'=>$path],'POST',['User-Agent'=>$agent]);

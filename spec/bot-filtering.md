@@ -36,3 +36,12 @@ are human. Store only rule-defined category/family, safe path, UTC day and count
 The dashboard reports observed requests, never all website crawler traffic.
 JavaScript collectors miss clients that do not execute the script. Native
 server integrations observe only requests that enter their collection pipeline.
+
+Explicit `Meta-WebIndexer`, `Meta-ExternalAgent` and `Meta-ExternalFetcher` tokens map
+to `ai/meta`, consistent with AI search/crawler/user-triggered families above. The
+[official Meta crawler
+reference](https://developers.facebook.com/docs/sharing/webmasters/web-crawlers/) was
+checked on 2026-11-06. These declarations neither verify the operator nor establish
+autonomous crawling or model training for an individual request. Safari/iPhone/WebKit
+declarations remain presumed browsers even without a Safari version token; missing Reach
+is not a classification signal.

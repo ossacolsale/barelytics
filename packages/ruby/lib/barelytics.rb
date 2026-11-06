@@ -377,7 +377,7 @@ module Barelytics
     def record_history
       config = configuration
       return if @db.get_first_value('SELECT configuration_hash FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 1') == fingerprint(config)
-      @db.execute('INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)', [Time.now.utc.iso8601, config[:profile], JSON.generate(config), fingerprint(config), '1.2.0', SCHEMA_VERSION])
+      @db.execute('INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)', [Time.now.utc.iso8601, config[:profile], JSON.generate(config), fingerprint(config), '1.2.1', SCHEMA_VERSION])
     end
   end
 

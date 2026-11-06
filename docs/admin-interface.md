@@ -55,3 +55,7 @@ page reports, with retained/disabled/no-data states and explicit capped-period
 notices. The site-wide Reach report remains independent. Period Page Reach
 values sum daily reports rather than deduplicating across days. See the
 [Page Reach configuration](configuration.md#daily-page-reach-standalone-php).
+
+For pageviews without Reach, use the [local browser decision tree and tracker cache
+recovery guide](reach-troubleshooting.md). Central enablement requires a current
+executed tracker; host/CMP permission remains independent.

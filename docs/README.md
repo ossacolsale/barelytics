@@ -10,6 +10,7 @@ Use this index to open only the guide relevant to the current task. It covers pr
 - [Shared hosting and Plesk](shared-hosting.md)
 - [Manual FTP acceptance checks](manual-ftp-acceptance.md)
 - [Administration interface](admin-interface.md)
+- [Missing Reach and tracker cache diagnosis](reach-troubleshooting.md)
 
 ## Privacy and security
 

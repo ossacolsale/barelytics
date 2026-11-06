@@ -18,6 +18,11 @@ module Barelytics
     "(?:^|[^a-z0-9])(?:perplexitybot|perplexity-user)(?=$|[^a-z0-9])"
   ],
   [
+    "ai",
+    "meta",
+    "(?:^|[^a-z0-9])(?:meta-webindexer|meta-externalagent|meta-externalfetcher)(?=$|[^a-z0-9])"
+  ],
+  [
     "search",
     "google",
     "(?:^|[^a-z0-9])(?:googlebot)(?=$|[^a-z0-9])"

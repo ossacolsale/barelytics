@@ -28,6 +28,15 @@
       ]
     },
     {
+      "category": "ai",
+      "family": "meta",
+      "tokens": [
+        "Meta-WebIndexer",
+        "Meta-ExternalAgent",
+        "Meta-ExternalFetcher"
+      ]
+    },
+    {
       "category": "search",
       "family": "google",
       "tokens": [

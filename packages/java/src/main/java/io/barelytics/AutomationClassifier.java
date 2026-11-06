@@ -11,6 +11,7 @@ public final class AutomationClassifier {
         new Rule("ai", "openai", Pattern.compile("(?:^|[^a-z0-9])(?:gptbot|oai-searchbot|chatgpt-user)(?=$|[^a-z0-9])")),
         new Rule("ai", "anthropic", Pattern.compile("(?:^|[^a-z0-9])(?:claudebot|claude-user|claude-searchbot)(?=$|[^a-z0-9])")),
         new Rule("ai", "perplexity", Pattern.compile("(?:^|[^a-z0-9])(?:perplexitybot|perplexity-user)(?=$|[^a-z0-9])")),
+        new Rule("ai", "meta", Pattern.compile("(?:^|[^a-z0-9])(?:meta-webindexer|meta-externalagent|meta-externalfetcher)(?=$|[^a-z0-9])")),
         new Rule("search", "google", Pattern.compile("(?:^|[^a-z0-9])(?:googlebot)(?=$|[^a-z0-9])")),
         new Rule("search", "bing", Pattern.compile("(?:^|[^a-z0-9])(?:bingbot|bingpreview)(?=$|[^a-z0-9])")),
         new Rule("search", "duckduckgo", Pattern.compile("(?:^|[^a-z0-9])(?:duckduckbot)(?=$|[^a-z0-9])")),

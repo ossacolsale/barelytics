@@ -19,7 +19,7 @@ const DEFAULT_BOT_PATTERNS = [
 ];
 const CURRENT_SCHEMA_VERSION = 5;
 const CONTRACT_VERSION = 4;
-const APPLICATION_VERSION = '1.2.0';
+const APPLICATION_VERSION = '1.2.1';
 const PRIVACY_DEFAULTS = [
     'country_collection' => false,
     'referrer_collection' => false,

@@ -90,3 +90,14 @@ diagnostics, other console errors and the same CSP message outside capture still
 fail. A deliberate inline-style probe verifies
 that the real policy blocks styles and that the application-error collector
 observes the violation; production CSP and the browser context remain unchanged.
+
+Mobile scenarios use a 390×844 touch viewport and Safari `Version/26.6.1` or iPhone
+WebKit without a Safari token. Each checks pageview, prepare and count attempts,
+IndexedDB access and both SQL aggregates for permission true/false/throw/rejection,
+Strict, explicit opt-out, unavailable storage and missing Web Crypto. Cache tests use a
+frozen [1.1.0 tracker](fixtures/legacy-track.js): a fresh long-lived legacy copy
+continues pageviews without Reach after server replacement, and a changed URL recovers
+Page Reach. The synthetic router models HTTP validation; `python3 tests/apache-cache.py`
+separately verifies the real shipped Apache policy. Desktop/headless WebKit is not
+physical iOS Safari or WKWebView; no device or mobile process-suspension coverage is
+claimed.

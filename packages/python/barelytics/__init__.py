@@ -247,7 +247,7 @@ class Barelytics:
         fingerprint = sha256(json.dumps({"contract_version": CONTRACT_VERSION, "schema_version": SCHEMA_VERSION, "configuration": config}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         last = self.db.execute("SELECT configuration_hash FROM privacy_configuration_history ORDER BY rowid DESC LIMIT 1").fetchone()
         if last and last[0] == fingerprint: return
-        self.db.execute("INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)", (_now(), config["profile"], serialized, fingerprint, "1.2.0", SCHEMA_VERSION))
+        self.db.execute("INSERT INTO privacy_configuration_history VALUES (?,?,?,?,?,?)", (_now(), config["profile"], serialized, fingerprint, "1.2.1", SCHEMA_VERSION))
 
     @_serialized
     def dashboard(self, period_days: int = 30) -> dict[str, Any]:

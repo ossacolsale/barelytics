@@ -186,3 +186,11 @@ current enablement, retained data and partial periods are separate API states.
 Storage clearing/eviction, profiles/devices/private contexts, JavaScript or CMP
 blocking, local limits, network loss and public forgery can change counts.
 No exact people, conversion percentage or universal consent exemption is claimed.
+
+Tracker deployment must keep PHP and JavaScript compatible. Standalone Apache serves
+only `track.js` with revalidation (`no-cache, must-revalidate`) when modules/overrides
+permit; validators remain available. Existing fresh browser/proxy copies cannot be
+retroactively invalidated. See the [stage-specific diagnostic and cache recovery
+guide](../docs/reach-troubleshooting.md). Missing prepare is distinct from post-prepare
+hash/storage failure and from an uncommitted count; absence of Reach alone never proves
+automation.

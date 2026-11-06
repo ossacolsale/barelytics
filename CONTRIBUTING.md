@@ -58,6 +58,12 @@ actual engines and missing dependencies. The harness creates synthetic private
 profiles/data under the temporary directory and never uses a personal profile.
 No browser/testing dependency is shipped in a runtime package.
 
+Tracker cache changes additionally require `python3 tests/apache-cache.py` with Apache
+2.4 installed (or `APACHE_EXECUTABLE` and `APACHE_MODULE_DIRECTORY` set). This exercises
+the shipped `.htaccess` on an isolated localhost server, including inherited expiry,
+unchanged validators/304, unaffected other assets and optional-module absence. CI and
+Release run it explicitly.
+
 ## Versions and GitHub releases
 
 Application releases use one version across PHP, Node, Python, .NET, Java, Ruby

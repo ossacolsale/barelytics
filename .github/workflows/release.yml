@@ -81,6 +81,11 @@ jobs:
           php tests/sqlite-concurrency.php
       - name: HTTP integration checks
         run: bash tests/integration.sh
+      - name: Apache tracker cache checks
+        if: matrix.php == '8.3'
+        run: |
+          sudo apt-get update && sudo apt-get install -y apache2
+          python3 tests/apache-cache.py
       - name: Build installable archives
         if: matrix.php == '8.5'
         env:

@@ -4,6 +4,14 @@ All notable changes to Barelytics are documented here.
 
 ## Unreleased
 
+## 1.2.1 — 2026-11-06
+
+### Fixed
+
+- Revalidate only the standalone Apache tracker after deployment while retaining ETag/Last-Modified and conditional requests. Existing fresh cached copies still require expiry or a changed URL; document recovery and stage-specific Reach diagnosis without new telemetry or consent bypasses.
+- Recognize declared Meta-WebIndexer, Meta-ExternalAgent and Meta-ExternalFetcher tokens consistently across runtimes; retain ordinary iPhone browser eligibility.
+- Cover mobile Safari/WebView-like permission, Strict, opt-out and capability cases, cached legacy tracker recovery and stripped authorization headers; verify real Apache cache headers in CI and Release.
+
 ## 1.2.0 — 2026-11-04
 
 ### Security

@@ -183,5 +183,61 @@
     "family": "openai",
     "identity": "declared",
     "automation": true
+  },
+  {
+    "user_agent": "Meta-WebIndexer/1.1",
+    "category": "ai",
+    "family": "meta",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "Mozilla/5.0 meta-externalagent/1.1",
+    "category": "ai",
+    "family": "meta",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "META-EXTERNALFETCHER/1.1",
+    "category": "ai",
+    "family": "meta",
+    "identity": "declared",
+    "automation": true
+  },
+  {
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1",
+    "category": "browser",
+    "family": "browser",
+    "identity": "presumed",
+    "automation": false
+  },
+  {
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    "category": "browser",
+    "family": "browser",
+    "identity": "presumed",
+    "automation": false
+  },
+  {
+    "user_agent": "notMeta-WebIndexerBrowser",
+    "category": "unknown",
+    "family": "unknown",
+    "identity": "unknown",
+    "automation": false
+  },
+  {
+    "user_agent": "Meta-ExternalAgentish",
+    "category": "unknown",
+    "family": "unknown",
+    "identity": "unknown",
+    "automation": false
+  },
+  {
+    "user_agent": "MyMeta-ExternalFetcherClient",
+    "category": "unknown",
+    "family": "unknown",
+    "identity": "unknown",
+    "automation": false
   }
 ]

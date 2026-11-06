@@ -11,6 +11,7 @@ function classifyUserAgent(string $ua, array $extra = []): array
         ['ai', 'openai', '(?:^|[^a-z0-9])(?:gptbot|oai-searchbot|chatgpt-user)(?=$|[^a-z0-9])'],
         ['ai', 'anthropic', '(?:^|[^a-z0-9])(?:claudebot|claude-user|claude-searchbot)(?=$|[^a-z0-9])'],
         ['ai', 'perplexity', '(?:^|[^a-z0-9])(?:perplexitybot|perplexity-user)(?=$|[^a-z0-9])'],
+        ['ai', 'meta', '(?:^|[^a-z0-9])(?:meta-webindexer|meta-externalagent|meta-externalfetcher)(?=$|[^a-z0-9])'],
         ['search', 'google', '(?:^|[^a-z0-9])(?:googlebot)(?=$|[^a-z0-9])'],
         ['search', 'bing', '(?:^|[^a-z0-9])(?:bingbot|bingpreview)(?=$|[^a-z0-9])'],
         ['search', 'duckduckgo', '(?:^|[^a-z0-9])(?:duckduckbot)(?=$|[^a-z0-9])'],

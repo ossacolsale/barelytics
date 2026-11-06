@@ -15,3 +15,9 @@ administration System section (or normal plugin activation) before tracking
 resumes. Both Reach capabilities stay unavailable in WordPress.
 
 For the current schema, see [docs/configuration.md](docs/configuration.md) and [docs/security.md](docs/security.md). See [CHANGELOG.md](CHANGELOG.md) for release changes.
+
+Verify that the deployed tracker is actually refreshed in browsers. Upload the packaged
+`.htaccess` as well as `track.js`, merge host rules and check the public tracker
+response for `Cache-Control: no-cache, must-revalidate`. Previously fresh cached copies
+need expiry or a changed asset URL; updating origin headers cannot evict them. See
+[cache recovery and Reach diagnosis](docs/reach-troubleshooting.md).

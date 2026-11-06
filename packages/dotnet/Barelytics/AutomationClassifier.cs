@@ -9,6 +9,7 @@ public static class AutomationClassifier
         ("ai", "openai", new Regex("(?:^|[^a-z0-9])(?:gptbot|oai-searchbot|chatgpt-user)(?=$|[^a-z0-9])")),
         ("ai", "anthropic", new Regex("(?:^|[^a-z0-9])(?:claudebot|claude-user|claude-searchbot)(?=$|[^a-z0-9])")),
         ("ai", "perplexity", new Regex("(?:^|[^a-z0-9])(?:perplexitybot|perplexity-user)(?=$|[^a-z0-9])")),
+        ("ai", "meta", new Regex("(?:^|[^a-z0-9])(?:meta-webindexer|meta-externalagent|meta-externalfetcher)(?=$|[^a-z0-9])")),
         ("search", "google", new Regex("(?:^|[^a-z0-9])(?:googlebot)(?=$|[^a-z0-9])")),
         ("search", "bing", new Regex("(?:^|[^a-z0-9])(?:bingbot|bingpreview)(?=$|[^a-z0-9])")),
         ("search", "duckduckgo", new Regex("(?:^|[^a-z0-9])(?:duckduckbot)(?=$|[^a-z0-9])")),
