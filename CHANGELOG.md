@@ -4,6 +4,10 @@ All notable changes to Barelytics are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Run CI on pull requests and pushes to `main`, cancel superseded runs for each ref, and keep package builds on the CI runners. Release builds retain their intermediate artifacts for seven days.
+
 ## 1.2.1 — 2026-11-06
 
 ### Fixed
